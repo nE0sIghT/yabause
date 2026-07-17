@@ -542,9 +542,12 @@ YglTextureManager * YglTMInit(unsigned int w, unsigned int h) {
 void YglTMDeInit(YglTextureManager * tm) {
 
   for (int i = 0; i < NUM_TEXTURE_BUFFER; i++) {
-    glBindTexture(GL_TEXTURE_2D, tm->textureID_in[i]);
-    glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
-    glBindTexture(GL_TEXTURE_2D, 0);
+    if (tm->texture_in[i]) {
+      glBindBuffer(GL_PIXEL_UNPACK_BUFFER, tm->pixelBufferID_in[i]);
+      glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER);
+      tm->texture_in[i] = NULL;
+    }
+
     glFinish();
 
     glDeleteTextures(1, &tm->textureID_in[i]);
@@ -553,6 +556,9 @@ void YglTMDeInit(YglTextureManager * tm) {
     tm->pixelBufferID_in[i] = 0;
   }
 
+  glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+  glBindTexture(GL_TEXTURE_2D, 0);
+  tm->texture = NULL;
   free(tm);
 }
 
@@ -587,6 +593,7 @@ void YglTmPush(YglTextureManager * tm){
     glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER);
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, tm->width, tm->yMax, GL_RGBA, GL_UNSIGNED_BYTE, 0);
     glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+    tm->texture_in[tm->current] = NULL;
     tm->texture = NULL;
   }
 }
@@ -1579,16 +1586,222 @@ int YglInit(int width, int height, unsigned int depth) {
 }
 
 //////////////////////////////////////////////////////////////////////////////
+static void YglDeleteTexture(GLuint *texture)
+{
+   if (*texture)
+   {
+      glDeleteTextures(1, texture);
+      *texture = 0;
+   }
+}
+
+static void YglDeleteU32Texture(u32 *texture)
+{
+   if (*texture)
+   {
+      GLuint id = (GLuint)*texture;
+      glDeleteTextures(1, &id);
+      *texture = 0;
+   }
+}
+
+static void YglDeleteBuffer(GLuint *buffer)
+{
+   if (*buffer)
+   {
+      glDeleteBuffers(1, buffer);
+      *buffer = 0;
+   }
+}
+
+static void YglDeleteU32Buffer(u32 *buffer)
+{
+   if (*buffer)
+   {
+      GLuint id = (GLuint)*buffer;
+      glDeleteBuffers(1, &id);
+      *buffer = 0;
+   }
+}
+
+static void YglDeleteFramebuffer(GLuint *framebuffer)
+{
+   if (*framebuffer)
+   {
+      glDeleteFramebuffers(1, framebuffer);
+      *framebuffer = 0;
+   }
+}
+
+static void YglDeleteRenderbuffer(GLuint *renderbuffer)
+{
+   if (*renderbuffer)
+   {
+      glDeleteRenderbuffers(1, renderbuffer);
+      *renderbuffer = 0;
+   }
+}
+
+static void YglUnmapPixelUnpackBuffer(GLuint buffer)
+{
+   if (buffer)
+   {
+      glBindBuffer(GL_PIXEL_UNPACK_BUFFER, buffer);
+      glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER);
+      glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+   }
+}
+
+static void YglUnmapU32PixelUnpackBuffer(u32 buffer)
+{
+   YglUnmapPixelUnpackBuffer((GLuint)buffer);
+}
+
+static void YglUnmapPixelPackBuffer(GLuint buffer)
+{
+   if (buffer)
+   {
+      glBindBuffer(GL_PIXEL_PACK_BUFFER, buffer);
+      glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+      glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+   }
+}
+
+static void YglDestroyGLObjects(void)
+{
+   unsigned int i;
+
+   if (!_Ygl)
+      return;
+
+   if (_Ygl->pFrameBuffer)
+   {
+      YglUnmapPixelPackBuffer(_Ygl->vdp1pixelBufferID);
+      _Ygl->pFrameBuffer = NULL;
+   }
+
+   if (_Ygl->lincolor_buf)
+   {
+      YglUnmapU32PixelUnpackBuffer(_Ygl->linecolor_pbo);
+      _Ygl->lincolor_buf = NULL;
+   }
+
+   if (_Ygl->backcolor_buf)
+   {
+      YglUnmapU32PixelUnpackBuffer(_Ygl->back_pbo);
+      _Ygl->backcolor_buf = NULL;
+   }
+
+   for (i = 0; i < enBGMAX; i++)
+   {
+      if (_Ygl->bg[i].lincolor_buf)
+      {
+         YglUnmapU32PixelUnpackBuffer(_Ygl->bg[i].linecolor_pbo);
+         _Ygl->bg[i].lincolor_buf = NULL;
+      }
+   }
+
+   if (_Ygl->sync)
+   {
+      glDeleteSync(_Ygl->sync);
+      _Ygl->sync = 0;
+   }
+
+   if (_Ygl->frame_sync)
+   {
+      glDeleteSync(_Ygl->frame_sync);
+      _Ygl->frame_sync = 0;
+   }
+
+   glBindFramebuffer(GL_FRAMEBUFFER, _Ygl->default_fbo);
+   glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+   glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+   glBindBuffer(GL_UNIFORM_BUFFER, 0);
+   glBindTexture(GL_TEXTURE_2D, 0);
+
+   if (_Ygl->vdp1FrameBuff[0] || _Ygl->vdp1FrameBuff[1])
+   {
+      glDeleteTextures(2, _Ygl->vdp1FrameBuff);
+      _Ygl->vdp1FrameBuff[0] = 0;
+      _Ygl->vdp1FrameBuff[1] = 0;
+   }
+
+   YglDeleteFramebuffer(&_Ygl->vdp1fbo);
+
+   if (_Ygl->rboid_depth && _Ygl->rboid_stencil == _Ygl->rboid_depth)
+   {
+      YglDeleteRenderbuffer(&_Ygl->rboid_depth);
+      _Ygl->rboid_stencil = 0;
+   }
+   else
+   {
+      YglDeleteRenderbuffer(&_Ygl->rboid_depth);
+      YglDeleteRenderbuffer(&_Ygl->rboid_stencil);
+   }
+
+   YglDeleteFramebuffer(&_Ygl->smallfbo);
+   YglDeleteTexture(&_Ygl->smallfbotex);
+   YglDeleteBuffer(&_Ygl->vdp1pixelBufferID);
+
+   YglDeleteFramebuffer(&_Ygl->fxaa_fbo);
+   YglDeleteTexture(&_Ygl->fxaa_fbotex);
+   if (_Ygl->fxaa_depth && _Ygl->fxaa_stencil == _Ygl->fxaa_depth)
+   {
+      YglDeleteRenderbuffer(&_Ygl->fxaa_depth);
+      _Ygl->fxaa_stencil = 0;
+   }
+   else
+   {
+      YglDeleteRenderbuffer(&_Ygl->fxaa_depth);
+      YglDeleteRenderbuffer(&_Ygl->fxaa_stencil);
+   }
+
+   YglDeleteFramebuffer(&_Ygl->tmpfbo);
+   YglDeleteTexture(&_Ygl->tmpfbotex);
+   YglDeleteTexture(&_Ygl->msgtexture);
+
+   YglDeleteU32Texture(&_Ygl->lincolor_tex);
+   YglDeleteU32Buffer(&_Ygl->linecolor_pbo);
+   YglDeleteU32Texture(&_Ygl->back_tex);
+   YglDeleteU32Buffer(&_Ygl->back_pbo);
+
+   for (i = 0; i < enBGMAX; i++)
+   {
+      YglDeleteU32Texture(&_Ygl->bg[i].lincolor_tex);
+      YglDeleteU32Buffer(&_Ygl->bg[i].linecolor_pbo);
+   }
+
+   YglDeleteTexture(&_Ygl->cram_tex);
+   YglDeleteBuffer(&_Ygl->cram_tex_pbo);
+   free(_Ygl->cram_tex_buf);
+   _Ygl->cram_tex_buf = NULL;
+
+   YglDeleteBuffer(&_Ygl->framebuffer_uniform_id_);
+   _Ygl->targetfbo = _Ygl->default_fbo;
+}
+
+//////////////////////////////////////////////////////////////////////////////
 void YglDeInit(void) {
    unsigned int i,j;
 
-   YglTMDeInit(YglTM);
+   if (!_Ygl)
+      return;
+
+   YglProgramDeInit();
+   YglDestroyGLObjects();
+
+   if (YglTM)
+   {
+      YglTMDeInit(YglTM);
+      YglTM = NULL;
+   }
 //   YglTMDeInit(YglTM_vdp1);
 
    if (_Ygl)
    {
       if(_Ygl->mutex) YabThreadFreeMutex(_Ygl->mutex );
-      
+      if(_Ygl->crammutex) YabThreadFreeMutex(_Ygl->crammutex );
+
       if (_Ygl->levels)
       {
          for (i = 0; i < (_Ygl->depth+1); i++)
@@ -1607,7 +1820,9 @@ void YglDeInit(void) {
          free(_Ygl->levels);
       }
 
+      free(_Ygl->CpuWriteFrameBuffer);
       free(_Ygl);
+      _Ygl = NULL;
    }
 
 }
@@ -4748,6 +4963,3 @@ void YglSetPerlineBuf(YglPerLineInfo * perline, u32 * pbuf, int linecount, int d
   glBindTexture(GL_TEXTURE_2D, 0);
   return;
 }
-
-
-

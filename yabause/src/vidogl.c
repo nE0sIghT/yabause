@@ -188,6 +188,7 @@ static int vdp1_interlace = 0;
 
 int GlWidth = 320;
 int GlHeight = 224;
+static int vidogl_renderer_started = 0;
 
 int vdp1cor = 0;
 int vdp1cog = 0;
@@ -4418,6 +4419,9 @@ static void SetSaturnResolution(int width, int height)
 
 int VIDOGLInit(void)
 {
+  if (vidogl_renderer_started)
+    return 0;
+
   if (YglInit(2048, 1024, 8) != 0)
     return -1;
 
@@ -4440,6 +4444,7 @@ int VIDOGLInit(void)
     RBGGenerator_init(320, 224);
   }
 
+  vidogl_renderer_started = 1;
   return 0;
 }
 
@@ -4447,13 +4452,17 @@ int VIDOGLInit(void)
 
 void VIDOGLDeInit(void)
 {
-  YglDeInit();
+  if (!vidogl_renderer_started)
+    return;
 
   if (Vdp2DrawRotationThread_running != 0) {
     Vdp2DrawRotationThread_running = 0;
     YabThreadUnLock(g_rotate_mtx);
     YabThreadWait(YAB_THREAD_VIDSOFT_LAYER_RBG0);
   }
+
+  YglDeInit();
+  vidogl_renderer_started = 0;
 }
 
 //////////////////////////////////////////////////////////////////////////////

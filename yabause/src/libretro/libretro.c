@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <string.h>
 
 #ifdef _MSC_VER
 #define snprintf _snprintf
@@ -54,6 +55,10 @@ static int max_width;
 static int max_height;
 
 static bool renderer_running = false;
+static bool yabause_initialized = false;
+#if !defined(_USEGLEW_)
+static bool glsm_context_ready = false;
+#endif
 static bool hle_bios_force = false;
 static bool one_frame_rendered = false;
 
@@ -506,10 +511,17 @@ void YuiErrorMsg(const char *string)
 
 static int first_ctx_reset = 1;
 
+static void retro_clear_hw_context(void)
+{
+   memset(&hw_render, 0, sizeof(hw_render));
+}
+
 int YuiUseOGLOnThisThread()
 {
 #if !defined(_USEGLEW_)
   return glsm_ctl(GLSM_CTL_STATE_BIND, NULL);
+#else
+  return 1;
 #endif
 }
 
@@ -517,6 +529,8 @@ int YuiRevokeOGLOnThisThread()
 {
 #if !defined(_USEGLEW_)
   return glsm_ctl(GLSM_CTL_STATE_UNBIND, NULL);
+#else
+  return 1;
 #endif
 }
 
@@ -578,41 +592,76 @@ void YuiSwapBuffers(void)
    one_frame_rendered = true;
 }
 
+static void retro_ensure_renderer(void)
+{
+   if (renderer_running || !VIDCore)
+      return;
+
+   if (VIDCore->Init() != 0)
+   {
+      if (log_cb)
+         log_cb(RETRO_LOG_ERROR, "Failed to reinitialize video renderer after GL context reset.\n");
+      return;
+   }
+
+   renderer_running = true;
+   retro_set_resolution();
+}
+
 static void context_reset(void)
 {
 #if !defined(_USEGLEW_)
    glsm_ctl(GLSM_CTL_STATE_CONTEXT_RESET, NULL);
-   glsm_ctl(GLSM_CTL_STATE_SETUP, NULL);
+   glsm_context_ready = glsm_ctl(GLSM_CTL_STATE_SETUP, NULL);
 #endif
    if (first_ctx_reset == 1)
    {
+      if (YabauseInit(&yinit) != 0)
+      {
+         if (log_cb)
+            log_cb(RETRO_LOG_ERROR, "Failed to initialize YabaSanshiro.\n");
+         renderer_running = false;
+         yabause_initialized = false;
+         return;
+      }
       first_ctx_reset = 0;
-      YabauseInit(&yinit);
+      yabause_initialized = true;
       renderer_running = true;
       retro_set_resolution();
       OSDChangeCore(OSDCORE_DUMMY);
    }
    else
    {
-      if (!renderer_running)
-         VIDCore->Init();
-      renderer_running = true;
-      retro_set_resolution();
+      if (renderer_running && VIDCore)
+         VIDCore->DeInit();
+      renderer_running = false;
    }
 }
 
 static void context_destroy(void)
 {
-   if (renderer_running)
+#if !defined(_USEGLEW_)
+   if (glsm_context_ready)
+      glsm_ctl(GLSM_CTL_STATE_UNBIND, NULL);
+#endif
+
+   if (renderer_running && VIDCore)
       VIDCore->DeInit();
    renderer_running = false;
+
 #if !defined(_USEGLEW_)
-   glsm_ctl(GLSM_CTL_STATE_CONTEXT_DESTROY, NULL);
+   if (glsm_context_ready)
+   {
+      glsm_ctl(GLSM_CTL_STATE_CONTEXT_DESTROY, NULL);
+      glsm_context_ready = false;
+   }
 #endif
 }
 
 static bool retro_init_hw_context(void)
 {
+   retro_clear_hw_context();
+
 #if defined(_USEGLEW_)
    hw_render.context_reset = context_reset;
    hw_render.context_destroy = context_destroy;
@@ -623,6 +672,8 @@ static bool retro_init_hw_context(void)
    if (!environ_cb(RETRO_ENVIRONMENT_SET_HW_RENDER, &hw_render))
       return false;
 #else
+   /* Request a compatibility GL context. RetroArch may still select its
+    * glcore driver, but forcing a core profile breaks legacy renderer paths. */
    hw_render.context_type = RETRO_HW_CONTEXT_OPENGL;
    if (!environ_cb(RETRO_ENVIRONMENT_SET_HW_RENDER, &hw_render))
        return false;
@@ -640,6 +691,8 @@ static bool retro_init_hw_context(void)
    if (!glsm_ctl(GLSM_CTL_STATE_CONTEXT_INIT, &params))
       return false;
 #else
+   /* Request a compatibility GL context. RetroArch may still select its
+    * glcore driver, but forcing a core profile breaks legacy renderer paths. */
    params.context_type = RETRO_HW_CONTEXT_OPENGL;
    if (!glsm_ctl(GLSM_CTL_STATE_CONTEXT_INIT, &params))
       return false;
@@ -1315,9 +1368,23 @@ bool retro_load_game_special(unsigned game_type, const struct retro_game_info *i
 
 void retro_unload_game(void)
 {
-   if (!renderer_running)
-      VIDCore->Init();
-   YabauseDeInit();
+   /* A frontend video initialization failure can call retro_unload_game()
+    * before context_reset(), in which case VIDCore is still NULL.  Also,
+    * context_destroy() may already have deinitialized the renderer.  Never
+    * create GL objects from the unload path: there may be no GL context. */
+   if (yabause_initialized)
+   {
+      YabauseDeInit();
+      yabause_initialized = false;
+   }
+
+   renderer_running = false;
+   rendering_started = false;
+   first_ctx_reset = 1;
+#if !defined(_USEGLEW_)
+   glsm_context_ready = false;
+#endif
+   retro_clear_hw_context();
 }
 
 unsigned retro_get_region(void)
@@ -1342,6 +1409,7 @@ size_t retro_get_memory_size(unsigned id)
 
 void retro_deinit(void)
 {
+   retro_unload_game();
    libretro_supports_bitmasks = false;
 }
 
@@ -1375,6 +1443,13 @@ void retro_run(void)
    bool updated  = false;
    rendering_started = true;
    one_frame_rendered = false;
+
+   retro_ensure_renderer();
+   if (!renderer_running)
+   {
+      video_cb(NULL, current_width, current_height, 0);
+      return;
+   }
 
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated) && updated)
    {

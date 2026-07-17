@@ -22,6 +22,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <glsym/glsym.h>
 #include <glsm/glsm.h>
 
@@ -2565,6 +2566,10 @@ static void glsm_state_setup(void)
 {
    unsigned i;
 
+   if (gl_state.bind_textures.ids)
+      free(gl_state.bind_textures.ids);
+   memset(&gl_state, 0, sizeof(gl_state));
+
    gl_state.cap_translate[SGL_DEPTH_TEST]           = GL_DEPTH_TEST;
    gl_state.cap_translate[SGL_BLEND]                = GL_BLEND;
    gl_state.cap_translate[SGL_POLYGON_OFFSET_FILL]  = GL_POLYGON_OFFSET_FILL;
@@ -2799,9 +2804,15 @@ static void glsm_state_unbind(void)
 
 static bool glsm_state_ctx_destroy(void *data)
 {
+#ifdef CORE
+   if (gl_state.vao)
+      glDeleteVertexArrays(1, &gl_state.vao);
+#endif
    if (gl_state.bind_textures.ids)
       free(gl_state.bind_textures.ids);
-   gl_state.bind_textures.ids = NULL;
+   memset(&gl_state, 0, sizeof(gl_state));
+   default_framebuffer = 0;
+   glsm_max_textures = 0;
 
    return true;
 }
@@ -2810,6 +2821,8 @@ static bool glsm_state_ctx_init(glsm_ctx_params_t *params)
 {
    if (!params || !params->environ_cb)
       return false;
+
+   memset(&hw_render, 0, sizeof(hw_render));
 
 #ifdef HAVE_OPENGLES
 #if defined(HAVE_OPENGLES_3_1)

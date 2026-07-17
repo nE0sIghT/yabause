@@ -4862,3 +4862,49 @@ int YglBlitScanlineFilter(u32 sourceTexture, u32 draw_res_v, u32 staturn_res_v) 
 
   return 0;
 }
+
+void YglProgramDeInit(void)
+{
+  int i;
+  int j;
+
+  if (clear_prg != -1)
+    glDeleteProgram(clear_prg);
+  if (blit_prg != -1)
+    glDeleteProgram(blit_prg);
+  if (blit_to_fb_prg != -1)
+    glDeleteProgram(blit_to_fb_prg);
+  if (fxaa_prg != -1)
+    glDeleteProgram(fxaa_prg);
+  if (blur_prg != -1)
+    glDeleteProgram(blur_prg);
+  if (mosaic_prg != -1)
+    glDeleteProgram(mosaic_prg);
+  if (perlinealpha_prg != -1)
+    glDeleteProgram(perlinealpha_prg);
+  if (scanline_prg != -1)
+    glDeleteProgram(scanline_prg);
+
+  clear_prg        = -1;
+  blit_prg         = -1;
+  blit_to_fb_prg   = -1;
+  fxaa_prg         = -1;
+  blur_prg         = -1;
+  mosaic_prg       = -1;
+  perlinealpha_prg = -1;
+  scanline_prg     = -1;
+
+  /* Several program slots are aliases. Delete each GL object once, then
+   * clear every ID so a new context cannot reuse names from the old one. */
+  for (i = 0; i < PG_MAX; i++)
+  {
+    if (_prgid[i] != 0)
+    {
+      glDeleteProgram(_prgid[i]);
+      for (j = i + 1; j < PG_MAX; j++)
+        if (_prgid[j] == _prgid[i])
+          _prgid[j] = 0;
+      _prgid[i] = 0;
+    }
+  }
+}

@@ -744,6 +744,7 @@ void YglSetBackColor(int size);
 
 int Ygl_uniformWindow(void * p );
 int YglProgramInit();
+void YglProgramDeInit(void);
 int YglTesserationProgramInit();
 int YglProgramChange( YglLevel * level, int prgid );
 void Ygl_setNormalshader(YglProgram * prg);
