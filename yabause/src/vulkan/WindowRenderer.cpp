@@ -276,7 +276,7 @@ void WindowRenderer::changeResolution(int width, int height, int pretransformFla
   this->pretransformFlag = pretransformFlag;
   this->rotateScreen = rotateScreen;  
 
-  vkQueueWaitIdle(vulkan->getVulkanQueue());
+  YabVkQueueWaitIdle(vulkan->getVulkanQueue());
 
   VkDevice device = vulkan->getDevice();
 

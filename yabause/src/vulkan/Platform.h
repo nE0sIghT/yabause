@@ -51,6 +51,23 @@ void AddRequiredPlatformDeviceExtensions(std::vector<const char*>* device_extens
 
 #include <vulkan/vulkan.h>
 
+#if defined(HAVE_VULKAN)
+#ifdef __cplusplus
+extern "C" {
+#endif
+VkResult vulkan_libretro_queue_submit(VkQueue queue, uint32_t submit_count,
+      const VkSubmitInfo *submits, VkFence fence);
+VkResult vulkan_libretro_queue_wait_idle(VkQueue queue);
+VkResult vulkan_libretro_device_wait_idle(VkDevice device);
+#ifdef __cplusplus
+}
+#endif
+
+#define YabVkQueueSubmit     vulkan_libretro_queue_submit
+#define YabVkQueueWaitIdle   vulkan_libretro_queue_wait_idle
+#define YabVkDeviceWaitIdle  vulkan_libretro_device_wait_idle
+#endif
+
 // GLFW
 #elif BUILD_USE_GLFW
 
@@ -99,3 +116,9 @@ void AddRequiredPlatformDeviceExtensions(std::vector<const char*>* device_extens
 #endif
 
 #include <vulkan/vulkan.h>
+
+#if !defined(__LIBRETRO__) || !defined(HAVE_VULKAN)
+#define YabVkQueueSubmit     vkQueueSubmit
+#define YabVkQueueWaitIdle   vkQueueWaitIdle
+#define YabVkDeviceWaitIdle  vkDeviceWaitIdle
+#endif

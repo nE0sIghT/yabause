@@ -75,7 +75,7 @@ public:
 
   void freeBuffers(VkDevice device) {
 
-    vkDeviceWaitIdle(device);
+    YabVkDeviceWaitIdle(device);
 
 #if 1 // Driver BUG??? can not free these memorys
 //    std::cout << "freeBlock " << " stagingBuffer=" << stagingBuffer << " stagingBufferMemory=" << stagingBufferMemory << std::endl;

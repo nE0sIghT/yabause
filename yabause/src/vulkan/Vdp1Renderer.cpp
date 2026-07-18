@@ -242,7 +242,7 @@ void Vdp1Renderer::changeResolution(int width, int height) {
   this->width = width;
   this->height = height;
 
-  vkQueueWaitIdle(vulkan->getVulkanQueue());
+  YabVkQueueWaitIdle(vulkan->getVulkanQueue());
   VkDevice device = vulkan->getDevice();
 
   vkDestroySampler(device, offscreenPass.sampler, nullptr);
@@ -791,7 +791,7 @@ void Vdp1Renderer::erase() {
   submit_info.pWaitDstStageMask = graphicsWaitStageMasks;
   submit_info.commandBufferCount = 1;
   submit_info.pCommandBuffers = &cb;
-  ErrorCheck(vkQueueSubmit(vulkan->getVulkanQueue(), 1, &submit_info, fence));
+  ErrorCheck(YabVkQueueSubmit(vulkan->getVulkanQueue(), 1, &submit_info, fence));
   offscreenPass.color[readframe].renderFences.push(fence);
 
   clearCount++;
@@ -964,9 +964,9 @@ void Vdp1Renderer::drawEnd(void) {
         submit_info.pCommandBuffers = &cb;
         submit_info.signalSemaphoreCount = 0;    // 1;
         submit_info.pSignalSemaphores = nullptr; // &offscreenPass.color[fi]._render_complete_semaphore;
-        ErrorCheck(vkQueueSubmit(vulkan->getVulkanQueue(), 1, &submit_info, nullptr));
-        vkQueueWaitIdle(vulkan->getVulkanQueue());
-        vkDeviceWaitIdle(device);
+        ErrorCheck(YabVkQueueSubmit(vulkan->getVulkanQueue(), 1, &submit_info, nullptr));
+        YabVkQueueWaitIdle(vulkan->getVulkanQueue());
+        YabVkDeviceWaitIdle(device);
 
         vkBeginCommandBuffer(cb, &cmdBufInfo);
 
@@ -1145,7 +1145,7 @@ void Vdp1Renderer::drawEnd(void) {
   submit_info.pCommandBuffers = &cb;
   submit_info.signalSemaphoreCount = 0;    // 1;
   submit_info.pSignalSemaphores = nullptr; // &offscreenPass.color[fi]._render_complete_semaphore;
-  ErrorCheck(vkQueueSubmit(vulkan->getVulkanQueue(), 1, &submit_info, fence));
+  ErrorCheck(YabVkQueueSubmit(vulkan->getVulkanQueue(), 1, &submit_info, fence));
   offscreenPass.color[drawframe].renderFences.push(fence);
   offscreenPass.color[drawframe].updated = true;
   offscreenPass.color[drawframe].readed = false;
@@ -4238,7 +4238,7 @@ void Vdp1Renderer::readFrameBuffer(u32 type, u32 addr, void *out) {
     VkFence fence;
     VK_CHECK_RESULT(vkCreateFence(device, &fenceInfo, nullptr, &fence));
     // Submit to the queue
-    VK_CHECK_RESULT(vkQueueSubmit(vulkan->getVulkanQueue(), 1, &submitInfo, fence));
+    VK_CHECK_RESULT(YabVkQueueSubmit(vulkan->getVulkanQueue(), 1, &submitInfo, fence));
     // Wait for the fence to signal that command buffer has finished executing
     VK_CHECK_RESULT(vkWaitForFences(device, 1, &fence, VK_TRUE, DEFAULT_FENCE_TIMEOUT));
     vkDestroyFence(device, fence, nullptr);
@@ -4494,7 +4494,7 @@ void Vdp1Renderer::blitCpuWrittenFramebuffer(int target) {
   VkFence fence;
   VK_CHECK_RESULT(vkCreateFence(device, &fenceInfo, nullptr, &fence));
   // Submit to the queue
-  VK_CHECK_RESULT(vkQueueSubmit(vulkan->getVulkanQueue(), 1, &submitInfo, fence));
+  VK_CHECK_RESULT(YabVkQueueSubmit(vulkan->getVulkanQueue(), 1, &submitInfo, fence));
   // Wait for the fence to signal that command buffer has finished executing
   VK_CHECK_RESULT(vkWaitForFences(device, 1, &fence, VK_TRUE, DEFAULT_FENCE_TIMEOUT));
   vkDestroyFence(device, fence, nullptr);

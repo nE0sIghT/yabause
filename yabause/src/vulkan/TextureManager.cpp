@@ -26,7 +26,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 TextureManager::~TextureManager() {
   const VkDevice device = vulkan->getDevice();
 
-  vkQueueWaitIdle(vulkan->getVulkanQueue());
+  YabVkQueueWaitIdle(vulkan->getVulkanQueue());
 
   vkDestroyBuffer(device, stagingBuffer, nullptr);
   vkFreeMemory(device, stagingBufferMemory, nullptr);
@@ -233,7 +233,7 @@ void * TextureManager::reallocTextureImage(void * pixels, int texWidth, int texH
 
   const VkDevice device = vulkan->getDevice();
   if (device == VK_NULL_HANDLE) return NULL;
-  vkDeviceWaitIdle(device);
+  YabVkDeviceWaitIdle(device);
 
   VkDeviceSize imageSize = texWidth * texHeight * 4;
 
@@ -405,7 +405,7 @@ void TextureManager::updateTextureImage(const std::function<void(VkCommandBuffer
   submitInfo.pCommandBuffers = &commandBuffers[ci];
   submitInfo.signalSemaphoreCount = 0; //1;
   submitInfo.pSignalSemaphores = nullptr; // (VkSemaphore*)&complete;
-  ErrorCheck(vkQueueSubmit(vulkan->getVulkanQueue(), 1, &submitInfo, VK_NULL_HANDLE));
+  ErrorCheck(YabVkQueueSubmit(vulkan->getVulkanQueue(), 1, &submitInfo, VK_NULL_HANDLE));
 
 //  vkQueueWaitIdle(vulkan->getVulkanQueue());
   //vkDeviceWaitIdle(device);

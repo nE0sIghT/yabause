@@ -278,8 +278,8 @@ void VulkanScene::endSingleTimeCommands(VkCommandBuffer commandBuffer) {
   submitInfo.commandBufferCount = 1;
   submitInfo.pCommandBuffers = &commandBuffer;
 
-  vkQueueSubmit(_renderer->GetVulkanQueue(), 1, &submitInfo, VK_NULL_HANDLE);
-  vkQueueWaitIdle(_renderer->GetVulkanQueue());
+  YabVkQueueSubmit(_renderer->GetVulkanQueue(), 1, &submitInfo, VK_NULL_HANDLE);
+  YabVkQueueWaitIdle(_renderer->GetVulkanQueue());
 
   vkFreeCommandBuffers(device, _command_pool, 1, &commandBuffer);
 }

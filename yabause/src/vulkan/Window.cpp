@@ -41,6 +41,8 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 
 #include "VulkanTools.h"
 
+#if !defined(__LIBRETRO__)
+
 Window::Window(Renderer *renderer, uint32_t size_x, uint32_t size_y, std::string name, void *nativeWindow) {
 
   _renderer = renderer;
@@ -519,3 +521,325 @@ void Window::_InitSynchronizations() {
 void Window::_DeInitSynchronizations() {
   vkDestroyFence(_renderer->GetVulkanDevice(), _swapchain_image_available, nullptr);
 }
+
+#else  // __LIBRETRO__
+
+#include "vulkan_libretro.h"
+
+// ---------------------------------------------------------------------------
+// libretro backing: no OS surface / swapchain. RetroArch owns presentation;
+// the core renders into N offscreen color images and hands the current one to
+// the frontend via retro_vulkan_image (set_image). The render pass leaves the
+// color image in SHADER_READ_ONLY_OPTIMAL so the frontend can sample it.
+// ---------------------------------------------------------------------------
+
+static uint32_t lr_findMemoryType(Renderer * r, uint32_t typeFilter, VkMemoryPropertyFlags props) {
+  VkPhysicalDeviceMemoryProperties mp = r->GetVulkanPhysicalDeviceMemoryProperties();
+  for (uint32_t i = 0; i < mp.memoryTypeCount; i++)
+    if ((typeFilter & (1 << i)) && (mp.memoryTypes[i].propertyFlags & props) == props)
+      return i;
+  assert(0 && "No compatible Vulkan memory type.");
+  return UINT32_MAX;
+}
+
+Window::Window(Renderer * renderer, uint32_t size_x, uint32_t size_y, std::string name, void * nativeWindow) {
+  _renderer = renderer;
+  _surface_size_x = size_x ? size_x : 512;
+  _surface_size_y = size_y ? size_y : 512;
+  _window_name = name;
+  _swapchain_image_count = vulkan_libretro_get_sync_image_count();
+  _active_swapchain_image_id = UINT32_MAX;
+  _surface_format.format = VK_FORMAT_R8G8B8A8_UNORM;
+  _surface_format.colorSpace = VK_COLORSPACE_SRGB_NONLINEAR_KHR;
+  _surface_capabilities.currentExtent.width = _surface_size_x;
+  _surface_capabilities.currentExtent.height = _surface_size_y;
+  _surface_capabilities.currentTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+
+  _InitSwapchainImages();
+  _InitDepthStencilImage();
+  _InitRenderPass();
+  _InitFramebuffers();
+  _InitSynchronizations();
+}
+
+Window::~Window() {
+  YabVkDeviceWaitIdle(_renderer->GetVulkanDevice());
+  _DeInitSynchronizations();
+  _DeInitFramebuffers();
+  _DeInitRenderPass();
+  _DeInitDepthStencilImage();
+  _DeInitSwapchainImages();
+}
+
+void Window::Close() { _window_should_run = false; }
+bool Window::Update() { return _window_should_run; }
+
+int Window::BeginRender() {
+  /* One image is kept for every frontend sync index. wait_sync_index() makes
+   * it legal to reuse the image RetroArch previously sampled at this index. */
+  vulkan_libretro_wait_sync_index();
+
+  uint32_t image_count = vulkan_libretro_get_sync_image_count();
+  if (image_count != _swapchain_image_count) {
+    YabVkDeviceWaitIdle(_renderer->GetVulkanDevice());
+    _DeInitFramebuffers();
+    _DeInitDepthStencilImage();
+    _DeInitSwapchainImages();
+    _swapchain_image_count = image_count;
+    _InitSwapchainImages();
+    _InitDepthStencilImage();
+    _InitFramebuffers();
+  }
+
+  _active_swapchain_image_id = vulkan_libretro_get_sync_index();
+  if (_active_swapchain_image_id >= _swapchain_image_count)
+    _active_swapchain_image_id %= _swapchain_image_count;
+  return _active_swapchain_image_id;
+}
+
+// The frontend presents; nothing to do here.
+void Window::EndRender(std::vector<VkSemaphore> wait_semaphores) { (void)wait_semaphores; }
+
+VkRenderPass  Window::GetVulkanRenderPass()       { return _render_pass; }
+VkRenderPass  Window::GetVulkanKeepRenderPass()   { return _render_pass_keep; }
+VkFramebuffer Window::GetVulkanActiveFramebuffer(){ return _framebuffers[_active_swapchain_image_id]; }
+VkExtent2D    Window::GetVulkanSurfaceSize()      { return { _surface_size_x, _surface_size_y }; }
+
+void Window::resize(int width, int height) {
+  if (width <= 0 || height <= 0) return;
+  if (_surface_size_x == static_cast<uint32_t>(width) &&
+      _surface_size_y == static_cast<uint32_t>(height)) return;
+  _surface_size_x = width;
+  _surface_size_y = height;
+  _surface_capabilities.currentExtent.width = width;
+  _surface_capabilities.currentExtent.height = height;
+  cleanupSwapChain();
+}
+
+void Window::cleanupSwapChain() {
+  YabVkDeviceWaitIdle(_renderer->GetVulkanDevice());
+  _DeInitFramebuffers();
+  _DeInitDepthStencilImage();
+  _DeInitSwapchainImages();
+  _InitSwapchainImages();
+  _InitDepthStencilImage();
+  _InitFramebuffers();
+}
+
+void Window::_InitSwapchainImages() {
+  VkDevice device = _renderer->GetVulkanDevice();
+  _swapchain_images.resize(_swapchain_image_count);
+  _swapchain_image_views.resize(_swapchain_image_count);
+  _offscreen_image_memory.resize(_swapchain_image_count);
+
+  for (uint32_t i = 0; i < _swapchain_image_count; ++i) {
+    VkImageCreateInfo ici{};
+    ici.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    ici.flags = VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
+    ici.imageType = VK_IMAGE_TYPE_2D;
+    ici.format = _surface_format.format;
+    ici.extent = { _surface_size_x, _surface_size_y, 1 };
+    ici.mipLevels = 1;
+    ici.arrayLayers = 1;
+    ici.samples = VK_SAMPLE_COUNT_1_BIT;
+    ici.tiling = VK_IMAGE_TILING_OPTIMAL;
+    ici.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    ici.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    ici.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    ErrorCheck(vkCreateImage(device, &ici, nullptr, &_swapchain_images[i]));
+
+    VkMemoryRequirements mr;
+    vkGetImageMemoryRequirements(device, _swapchain_images[i], &mr);
+    VkMemoryAllocateInfo mai{};
+    mai.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    mai.allocationSize = mr.size;
+    mai.memoryTypeIndex = lr_findMemoryType(_renderer, mr.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    ErrorCheck(vkAllocateMemory(device, &mai, nullptr, &_offscreen_image_memory[i]));
+    ErrorCheck(vkBindImageMemory(device, _swapchain_images[i], _offscreen_image_memory[i], 0));
+
+    VkImageViewCreateInfo ivci{};
+    ivci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    ivci.image = _swapchain_images[i];
+    ivci.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    ivci.format = _surface_format.format;
+    ivci.components = { VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY,
+                        VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY };
+    ivci.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+    ErrorCheck(vkCreateImageView(device, &ivci, nullptr, &_swapchain_image_views[i]));
+  }
+}
+
+void Window::_DeInitSwapchainImages() {
+  VkDevice device = _renderer->GetVulkanDevice();
+  for (uint32_t i = 0; i < _swapchain_image_count; ++i) {
+    if (_swapchain_image_views[i]) vkDestroyImageView(device, _swapchain_image_views[i], nullptr);
+    if (_swapchain_images[i])      vkDestroyImage(device, _swapchain_images[i], nullptr);
+    if (_offscreen_image_memory[i]) vkFreeMemory(device, _offscreen_image_memory[i], nullptr);
+  }
+  _swapchain_image_views.clear();
+  _swapchain_images.clear();
+  _offscreen_image_memory.clear();
+}
+
+void Window::_InitDepthStencilImage() {
+  VkDevice device = _renderer->GetVulkanDevice();
+  const VkFormat candidates[] = {
+    VK_FORMAT_D24_UNORM_S8_UINT,
+    VK_FORMAT_D16_UNORM_S8_UINT,
+    VK_FORMAT_D32_SFLOAT_S8_UINT
+  };
+  _depth_stencil_format = VK_FORMAT_UNDEFINED;
+  for (VkFormat candidate : candidates) {
+    VkFormatProperties properties{};
+    vkGetPhysicalDeviceFormatProperties(_renderer->GetVulkanPhysicalDevice(), candidate, &properties);
+    if (properties.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) {
+      _depth_stencil_format = candidate;
+      break;
+    }
+  }
+  assert(_depth_stencil_format != VK_FORMAT_UNDEFINED);
+  _stencil_available = true;
+
+  VkImageCreateInfo ici{};
+  ici.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+  ici.imageType = VK_IMAGE_TYPE_2D;
+  ici.format = _depth_stencil_format;
+  ici.extent = { _surface_size_x, _surface_size_y, 1 };
+  ici.mipLevels = 1;
+  ici.arrayLayers = 1;
+  ici.samples = VK_SAMPLE_COUNT_1_BIT;
+  ici.tiling = VK_IMAGE_TILING_OPTIMAL;
+  ici.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+  ici.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  ici.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  ErrorCheck(vkCreateImage(device, &ici, nullptr, &_depth_stencil_image));
+
+  VkMemoryRequirements mr;
+  vkGetImageMemoryRequirements(device, _depth_stencil_image, &mr);
+  VkMemoryAllocateInfo mai{};
+  mai.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+  mai.allocationSize = mr.size;
+  mai.memoryTypeIndex = lr_findMemoryType(_renderer, mr.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+  ErrorCheck(vkAllocateMemory(device, &mai, nullptr, &_depth_stencil_image_memory));
+  ErrorCheck(vkBindImageMemory(device, _depth_stencil_image, _depth_stencil_image_memory, 0));
+
+  VkImageViewCreateInfo ivci{};
+  ivci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+  ivci.image = _depth_stencil_image;
+  ivci.viewType = VK_IMAGE_VIEW_TYPE_2D;
+  ivci.format = _depth_stencil_format;
+  ivci.subresourceRange = { VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, 0, 1, 0, 1 };
+  ErrorCheck(vkCreateImageView(device, &ivci, nullptr, &_depth_stencil_image_view));
+}
+
+void Window::_DeInitDepthStencilImage() {
+  VkDevice device = _renderer->GetVulkanDevice();
+  if (_depth_stencil_image_view) vkDestroyImageView(device, _depth_stencil_image_view, nullptr);
+  if (_depth_stencil_image)      vkDestroyImage(device, _depth_stencil_image, nullptr);
+  if (_depth_stencil_image_memory) vkFreeMemory(device, _depth_stencil_image_memory, nullptr);
+  _depth_stencil_image_view = VK_NULL_HANDLE;
+  _depth_stencil_image = VK_NULL_HANDLE;
+  _depth_stencil_image_memory = VK_NULL_HANDLE;
+}
+
+static VkRenderPass lr_makeRenderPass(VkDevice device, VkFormat color, VkFormat depth,
+                                      VkAttachmentLoadOp loadOp, VkImageLayout initColor) {
+  VkAttachmentDescription atts[2] = {};
+  atts[0].format = color;
+  atts[0].samples = VK_SAMPLE_COUNT_1_BIT;
+  atts[0].loadOp = loadOp;
+  atts[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+  atts[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+  atts[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+  atts[0].initialLayout = initColor;
+  atts[0].finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+  atts[1].format = depth;
+  atts[1].samples = VK_SAMPLE_COUNT_1_BIT;
+  atts[1].loadOp = (loadOp == VK_ATTACHMENT_LOAD_OP_CLEAR) ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
+  atts[1].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+  atts[1].stencilLoadOp = (loadOp == VK_ATTACHMENT_LOAD_OP_CLEAR) ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
+  atts[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
+  atts[1].initialLayout = (loadOp == VK_ATTACHMENT_LOAD_OP_CLEAR) ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+  atts[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+  VkAttachmentReference colorRef{ 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+  VkAttachmentReference depthRef{ 1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+  VkSubpassDescription sub{};
+  sub.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+  sub.colorAttachmentCount = 1;
+  sub.pColorAttachments = &colorRef;
+  sub.pDepthStencilAttachment = &depthRef;
+
+  VkSubpassDependency deps[2] = {};
+  deps[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+  deps[0].dstSubpass = 0;
+  deps[0].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+  deps[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+  deps[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+  deps[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+  deps[1].srcSubpass = 0;
+  deps[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+  deps[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+  deps[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+  deps[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+  deps[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+  VkRenderPassCreateInfo rpci{};
+  rpci.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+  rpci.attachmentCount = 2;
+  rpci.pAttachments = atts;
+  rpci.subpassCount = 1;
+  rpci.pSubpasses = &sub;
+  rpci.dependencyCount = 2;
+  rpci.pDependencies = deps;
+
+  VkRenderPass rp;
+  ErrorCheck(vkCreateRenderPass(device, &rpci, nullptr, &rp));
+  return rp;
+}
+
+void Window::_InitRenderPass() {
+  VkDevice device = _renderer->GetVulkanDevice();
+  _render_pass      = lr_makeRenderPass(device, _surface_format.format, _depth_stencil_format,
+                                        VK_ATTACHMENT_LOAD_OP_CLEAR, VK_IMAGE_LAYOUT_UNDEFINED);
+  _render_pass_keep = lr_makeRenderPass(device, _surface_format.format, _depth_stencil_format,
+                                        VK_ATTACHMENT_LOAD_OP_LOAD, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+}
+
+void Window::_DeInitRenderPass() {
+  VkDevice device = _renderer->GetVulkanDevice();
+  if (_render_pass)      vkDestroyRenderPass(device, _render_pass, nullptr);
+  if (_render_pass_keep) vkDestroyRenderPass(device, _render_pass_keep, nullptr);
+  _render_pass = VK_NULL_HANDLE;
+  _render_pass_keep = VK_NULL_HANDLE;
+}
+
+void Window::_InitFramebuffers() {
+  VkDevice device = _renderer->GetVulkanDevice();
+  _framebuffers.resize(_swapchain_image_count);
+  for (uint32_t i = 0; i < _swapchain_image_count; ++i) {
+    VkImageView attachments[2] = { _swapchain_image_views[i], _depth_stencil_image_view };
+    VkFramebufferCreateInfo fci{};
+    fci.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+    fci.renderPass = _render_pass;
+    fci.attachmentCount = 2;
+    fci.pAttachments = attachments;
+    fci.width = _surface_size_x;
+    fci.height = _surface_size_y;
+    fci.layers = 1;
+    ErrorCheck(vkCreateFramebuffer(device, &fci, nullptr, &_framebuffers[i]));
+  }
+}
+
+void Window::_DeInitFramebuffers() {
+  VkDevice device = _renderer->GetVulkanDevice();
+  for (auto fb : _framebuffers)
+    if (fb) vkDestroyFramebuffer(device, fb, nullptr);
+  _framebuffers.clear();
+}
+
+void Window::_InitSynchronizations() {}
+void Window::_DeInitSynchronizations() {}
+
+#endif  // __LIBRETRO__

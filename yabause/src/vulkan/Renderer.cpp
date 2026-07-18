@@ -149,6 +149,8 @@ VKAPI_ATTR VkBool32 VKAPI_CALL debug_messenger_callback(VkDebugUtilsMessageSever
   return false;
 }
 
+#if !defined(__LIBRETRO__)
+
 Renderer::Renderer()
 {
   _window == nullptr;
@@ -701,3 +703,68 @@ void Renderer::_InitDebug() {};
 void Renderer::_DeInitDebug() {};
 
 #endif // BUILD_ENABLE_VULKAN_DEBUG
+
+#else  // __LIBRETRO__
+
+// ---------------------------------------------------------------------------
+// libretro backing: the frontend (RetroArch) owns the Vulkan instance, device
+// and queue via the HW-render negotiation interface. Renderer does not create
+// anything here; it adopts the handles the glue publishes below and hands them
+// out through the same getters the render code already uses.
+// ---------------------------------------------------------------------------
+
+static RetroVulkanAdopt g_retro_vk_adopt = {};
+
+void Renderer_SetRetroAdopt(const RetroVulkanAdopt & a) { g_retro_vk_adopt = a; }
+
+Renderer::Renderer()
+{
+  _window        = nullptr;
+  _instance      = g_retro_vk_adopt.instance;
+  _gpu           = g_retro_vk_adopt.gpu;
+  _device        = g_retro_vk_adopt.device;
+  _queue         = g_retro_vk_adopt.queue;
+  // RetroArch guarantees this queue supports graphics + compute, so the
+  // compute path aliases the graphics queue/family.
+  _queueCompute        = g_retro_vk_adopt.queue;
+  _graphics_family_index = g_retro_vk_adopt.queue_family;
+  _compute_family_index  = g_retro_vk_adopt.queue_family;
+  canUseTess             = g_retro_vk_adopt.tessellation_enabled;
+
+  if (_gpu != VK_NULL_HANDLE) {
+    vkGetPhysicalDeviceProperties(_gpu, &_gpu_properties);
+    vkGetPhysicalDeviceMemoryProperties(_gpu, &_gpu_memory_properties);
+  }
+}
+
+Renderer::~Renderer()
+{
+  // The instance/device/queue are owned by the frontend; only our window
+  // (offscreen images) is ours to destroy.
+  delete _window;
+  _window = nullptr;
+}
+
+Window * Renderer::OpenWindow(uint32_t size_x, uint32_t size_y, std::string name, void * nativeWindow)
+{
+  if (_window == nullptr)
+    _window = new Window(this, size_x, size_y, name, nativeWindow);
+  return _window;
+}
+
+void Renderer::setNativeWindow(void * nativeWindow) {}
+bool Renderer::Run() { return _window ? _window->Update() : true; }
+
+const VkInstance        Renderer::GetVulkanInstance() const { return _instance; }
+const VkPhysicalDevice  Renderer::GetVulkanPhysicalDevice() const { return _gpu; }
+const VkDevice          Renderer::GetVulkanDevice() const { return _device; }
+const VkQueue           Renderer::GetVulkanQueue() const { return _queue; }
+const VkQueue           Renderer::GetComputeQueue() const { return _queueCompute; }
+const uint32_t          Renderer::GetVulkanGraphicsQueueFamilyIndex() const { return _graphics_family_index; }
+const uint32_t          Renderer::GetVulkanComputeQueueFamilyIndex() const { return _compute_family_index; }
+const VkPhysicalDeviceProperties & Renderer::GetVulkanPhysicalDeviceProperties() const { return _gpu_properties; }
+const VkPhysicalDeviceMemoryProperties & Renderer::GetVulkanPhysicalDeviceMemoryProperties() const { return _gpu_memory_properties; }
+
+void vkDebugNameObject(VkDevice, VkObjectType, uint64_t, const char *, ...) {}
+
+#endif  // __LIBRETRO__

@@ -60,6 +60,11 @@ public:
   VkImage getCurrentImage() {
     return _swapchain_images[_active_swapchain_image_id];
   }
+#if defined(__LIBRETRO__)
+  VkImageView getCurrentImageView() {
+    return _swapchain_image_views[_active_swapchain_image_id];
+  }
+#endif
   VkFormat getColorFormat() {
     return _surface_format.format;
   }
@@ -145,6 +150,10 @@ private:
   bool _window_should_run = true;
 
   VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
+
+#if defined(__LIBRETRO__)
+  std::vector<VkDeviceMemory> _offscreen_image_memory;
+#endif
 
 #if 0
 #if USE_FRAMEWORK_GLFW

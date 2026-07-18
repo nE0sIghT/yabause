@@ -37,6 +37,18 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 
 class Window;
 
+#if defined(__LIBRETRO__)
+struct RetroVulkanAdopt {
+  VkInstance       instance;
+  VkPhysicalDevice gpu;
+  VkDevice         device;
+  VkQueue          queue;
+  uint32_t         queue_family;
+  bool             tessellation_enabled;
+};
+void Renderer_SetRetroAdopt(const RetroVulkanAdopt & a);
+#endif
+
 class Renderer
 {
 public:

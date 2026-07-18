@@ -195,7 +195,7 @@ extern Vdp2 *fixVdp2Regs;
 
 VIDVulkan::VIDVulkan() {
   vdp2width = 320;
-  vdp2height = 240;
+  vdp2height = 224;
   SetSaturnResolution(vdp2width, vdp2height);
   crammutex = NULL;
   pipleLineNBG0 = NULL;
@@ -231,7 +231,7 @@ int VIDVulkan::init(void) {
   int rtn;
 
   vdp2width = 320;
-  vdp2height = 240;
+  vdp2height = 224;
   SetSaturnResolution(vdp2width, vdp2height);
   crammutex = NULL;
   pipleLineNBG0 = NULL;
@@ -312,7 +312,7 @@ int VIDVulkan::init(void) {
 
 void VIDVulkan::deInit(void) {
   const VkDevice device = this->getDevice();
-  vkDeviceWaitIdle(device);
+  YabVkDeviceWaitIdle(device);
 
   if (pipleLineFactory != nullptr) {
     pipleLineFactory->flushPipeLineCache(device);
@@ -496,8 +496,8 @@ void VIDVulkan::Vdp2DrawStart(void) {
 
   if(rebuildSwapChain){
     LOGI("rebuild frame buffer");
-    vkQueueWaitIdle(_renderer->GetVulkanQueue());
-    vkDeviceWaitIdle(_renderer->GetVulkanDevice());
+    YabVkQueueWaitIdle(_renderer->GetVulkanQueue());
+    YabVkDeviceWaitIdle(_renderer->GetVulkanDevice());
     this->_renderer->getWindow()->cleanupSwapChain();
     rebuildSwapChain = 0;
   }
@@ -512,7 +512,7 @@ void VIDVulkan::Vdp2DrawStart(void) {
   Vdp2SetResolution(fixVdp2Regs->TVMD);
   if (rebuildFrameBuffer) {
     LOGI("rebuild frame buffer");
-    vkQueueWaitIdle(_renderer->GetVulkanQueue());
+    YabVkQueueWaitIdle(_renderer->GetVulkanQueue());
     // createCommandPool();
     vdp1->changeResolution(renderWidth, renderHeight);
     vdp1->setVdp2Resolution(vdp2width, vdp2height);
@@ -597,7 +597,11 @@ void VIDVulkan::renderExternal(const std::function<void(
   vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &imageBarrier);
 
   imageBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+#if defined(__LIBRETRO__)
+  imageBarrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+#else
   imageBarrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+#endif
   imageBarrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
   imageBarrier.image = _renderer->getWindow()->getCurrentImage();
   vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1, &imageBarrier);
@@ -669,9 +673,14 @@ void VIDVulkan::renderExternal(const std::function<void(
   submit_info.pWaitDstStageMask = graphicsWaitStageMasks;
   submit_info.commandBufferCount = 1;
   submit_info.pCommandBuffers = &commandBuffer;
+#if defined(__LIBRETRO__)
+  submit_info.signalSemaphoreCount = 0;
+  submit_info.pSignalSemaphores = nullptr;
+#else
   submit_info.signalSemaphoreCount = 1;
   submit_info.pSignalSemaphores = &_render_complete_semaphore;
-  ErrorCheck(vkQueueSubmit(_renderer->GetVulkanQueue(), 1, &submit_info, VK_NULL_HANDLE));
+#endif
+  ErrorCheck(YabVkQueueSubmit(_renderer->GetVulkanQueue(), 1, &submit_info, VK_NULL_HANDLE));
   YuiSwapBuffers();
   frameCount++;
 }
@@ -1262,9 +1271,14 @@ ENDEND:
   submit_info.pWaitDstStageMask = graphicsWaitStageMasks;
   submit_info.commandBufferCount = 1;
   submit_info.pCommandBuffers = &commandBuffer;
+#if defined(__LIBRETRO__)
+  submit_info.signalSemaphoreCount = 0;
+  submit_info.pSignalSemaphores = nullptr;
+#else
   submit_info.signalSemaphoreCount = 1;
   submit_info.pSignalSemaphores = &_render_complete_semaphore;
-  ErrorCheck(vkQueueSubmit(_renderer->GetVulkanQueue(), 1, &submit_info, commandFence[ci]));
+#endif
+  ErrorCheck(YabVkQueueSubmit(_renderer->GetVulkanQueue(), 1, &submit_info, commandFence[ci]));
 
   // vkQueueWaitIdle(getVulkanQueue());
   // vkDeviceWaitIdle(device);
@@ -1310,7 +1324,7 @@ ENDEND:
     VkFence fence;
     VK_CHECK_RESULT(vkCreateFence(device, &fenceInfo, nullptr, &fence));
     // Submit to the queue
-    VK_CHECK_RESULT(vkQueueSubmit(getVulkanQueue(), 1, &submitInfo, fence));
+    VK_CHECK_RESULT(YabVkQueueSubmit(getVulkanQueue(), 1, &submitInfo, fence));
     // Wait for the fence to signal that command buffer has finished executing
     VK_CHECK_RESULT(vkWaitForFences(device, 1, &fence, VK_TRUE, DEFAULT_FENCE_TIMEOUT));
     vkDestroyFence(device, fence, nullptr);
@@ -1627,7 +1641,11 @@ void VIDVulkan::SetSettingValue(int type, int value) {
   }
 }
 
-void VIDVulkan::GetNativeResolution(int *width, int *height, int *interlace) {}
+void VIDVulkan::GetNativeResolution(int *width, int *height, int *interlace) {
+  *width = vdp2width;
+  *height = vdp2height;
+  *interlace = _vdp2_interlace;
+}
 
 void VIDVulkan::Vdp2DispOff(void) {}
 
@@ -7090,7 +7108,7 @@ void VIDVulkan::generateSubRenderTarget(int width, int height) {
 
 void VIDVulkan::freeSubRenderTarget() {
 
-  vkQueueWaitIdle(getVulkanQueue());
+  YabVkQueueWaitIdle(getVulkanQueue());
   VkDevice device = getDevice();
 
   if (subRenderTarget.color._render_complete_semaphore != VK_NULL_HANDLE) {
@@ -7143,14 +7161,22 @@ void VIDVulkan::blitSubRenderTarget(VkCommandBuffer commandBuffer, const glm::ve
 
   // Transition destination image to transfer destination layout
   vks::tools::insertImageMemoryBarrier(commandBuffer, dstImage, 0, VK_ACCESS_TRANSFER_WRITE_BIT,
+#if defined(__LIBRETRO__)
+                                       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+#else
                                        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+#endif
                                        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
                                        VkImageSubresourceRange{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1});
 
   // Transition swapchain image from present to transfer source layout
   vks::tools::insertImageMemoryBarrier(
       commandBuffer, subRenderTarget.color.image, VK_ACCESS_MEMORY_READ_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+#if defined(__LIBRETRO__)
+      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT,
+#else
       VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT,
+#endif
       VK_PIPELINE_STAGE_TRANSFER_BIT, VkImageSubresourceRange{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1});
 
   // Define the region to blit (we will blit the whole swapchain image)
@@ -7176,14 +7202,22 @@ void VIDVulkan::blitSubRenderTarget(VkCommandBuffer commandBuffer, const glm::ve
   // Transition destination image to general layout, which is the required
   // layout for mapping the image memory later on
   vks::tools::insertImageMemoryBarrier(commandBuffer, dstImage, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT,
+#if defined(__LIBRETRO__)
+                                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+#else
                                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL,
+#endif
                                        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
                                        VkImageSubresourceRange{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1});
 
   // Transition back the swap chain image after the blit is done
   vks::tools::insertImageMemoryBarrier(
       commandBuffer, subRenderTarget.color.image, VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_MEMORY_READ_BIT,
+#if defined(__LIBRETRO__)
+      VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT,
+#else
       VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_PIPELINE_STAGE_TRANSFER_BIT,
+#endif
       VK_PIPELINE_STAGE_TRANSFER_BIT, VkImageSubresourceRange{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1});
 }
 
@@ -7305,7 +7339,11 @@ void VIDVulkan::getScreenshot(void ** outbuf, int & width, int & height)
     srcImage,
     VK_ACCESS_MEMORY_READ_BIT,
     VK_ACCESS_TRANSFER_READ_BIT,
+#if defined(__LIBRETRO__)
+    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+#else
     VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+#endif
     VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
     VK_PIPELINE_STAGE_TRANSFER_BIT,
     VK_PIPELINE_STAGE_TRANSFER_BIT,
@@ -7382,7 +7420,11 @@ void VIDVulkan::getScreenshot(void ** outbuf, int & width, int & height)
     VK_ACCESS_TRANSFER_READ_BIT,
     VK_ACCESS_MEMORY_READ_BIT,
     VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+#if defined(__LIBRETRO__)
+    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+#else
     VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+#endif
     VK_PIPELINE_STAGE_TRANSFER_BIT,
     VK_PIPELINE_STAGE_TRANSFER_BIT,
     VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 });
@@ -7527,5 +7569,3 @@ void VIDVulkan::getScreenshot(void ** outbuf, int & width, int & height)
 
   screenshotSaved = true;
 }
-
-

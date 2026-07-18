@@ -4613,7 +4613,7 @@ void RBGGeneratorVulkan::update(VIDVulkan::RBGDrawInfo * rbg, const vdp2rotation
       d.resetFences( commandfence[currentIndex] );
     }
 
-    queue.waitIdle();
+    VK_CHECK_RESULT(YabVkQueueWaitIdle(static_cast<VkQueue>(queue)));
     updateDescriptorSets(texindex);
     c.reset();
     c.begin({ vk::CommandBufferUsageFlagBits::eOneTimeSubmit});
@@ -4680,7 +4680,9 @@ void RBGGeneratorVulkan::update(VIDVulkan::RBGDrawInfo * rbg, const vdp2rotation
     computeSubmitInfo.signalSemaphoreCount = 1;
     computeSubmitInfo.pSignalSemaphores = &semaphores[currentIndex].complete;
     tex_surface[texindex].rendered = true;
-    queue.submit(computeSubmitInfo, commandfence[currentIndex]);
+    const VkSubmitInfo &rawSubmitInfo = static_cast<const VkSubmitInfo &>(computeSubmitInfo);
+    VK_CHECK_RESULT(YabVkQueueSubmit(static_cast<VkQueue>(queue), 1, &rawSubmitInfo,
+                                    static_cast<VkFence>(commandfence[currentIndex])));
   }
   catch ( vk::SystemError & err )
   {
