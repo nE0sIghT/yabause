@@ -95,6 +95,7 @@ static bool g_use_vulkan = true;
 static int g_scsp_main_mode = 0;
 static int g_scsp_sync_per_frame = 1;
 static bool rendering_started = false;
+static size_t serialized_state_size = 0;
 static int pad_type[12] = {1,1,1,1,1,1,1,1,1,1,1,1};
 static int multitap[2] = {0,0};
 static unsigned players = 7;
@@ -1079,46 +1080,47 @@ void retro_set_controller_port_device(unsigned port, unsigned device)
 
 size_t retro_serialize_size(void)
 {
-   // Disabling savestates until they are safe
-   if (!rendering_started)
+   size_t size = 0;
+
+   if (!rendering_started || !yabause_initialized)
       return 0;
-   void *buffer;
-   size_t size;
 
-   ScspMuteAudio(SCSP_MUTE_SYSTEM);
-   YabSaveStateBuffer (&buffer, &size);
-   ScspUnMuteAudio(SCSP_MUTE_SYSTEM);
+   if (serialized_state_size != 0)
+      return serialized_state_size;
 
-   free(buffer);
+   if (YabSaveStateToBuffer(NULL, 0, &size) != 0 || size == 0)
+      return 0;
 
-   return size;
+   serialized_state_size = size;
+   return serialized_state_size;
 }
 
 bool retro_serialize(void *data, size_t size)
 {
-   // Disabling savestates until they are safe
-   if (!rendering_started)
-      return true;
-   void *buffer;
-   size_t out_size;
+   size_t expected = retro_serialize_size();
+   size_t written = 0;
 
-   int error = YabSaveStateBuffer (&buffer, &out_size);
+   if (data == NULL || expected == 0 || size < expected)
+      return false;
 
-   memcpy(data, buffer, size);
-
-   free(buffer);
-   return !error;
+   return YabSaveStateToBuffer(data, expected, &written) == 0 &&
+          written == expected;
 }
 
 bool retro_unserialize(const void *data, size_t size)
 {
-   // Disabling savestates until they are safe
-   if (!rendering_started)
-      return true;
-   int error = YabLoadStateBuffer(data, size);
-   retro_set_resolution();
+   size_t expected = retro_serialize_size();
+   int error;
 
-   return !error;
+   if (data == NULL || expected == 0 || size != expected)
+      return false;
+
+   error = YabLoadStateBuffer(data, size);
+   if (error != 0)
+      return false;
+
+   retro_set_resolution();
+   return true;
 }
 
 void retro_cheat_reset(void)
@@ -1160,7 +1162,10 @@ void retro_init(void)
 
    log_cb                   = NULL;
    perf_get_cpu_features_cb = NULL;
-   uint64_t serialization_quirks = RETRO_SERIALIZATION_QUIRK_SINGLE_SESSION;
+   uint64_t serialization_quirks = RETRO_SERIALIZATION_QUIRK_MUST_INITIALIZE |
+      RETRO_SERIALIZATION_QUIRK_SINGLE_SESSION |
+      RETRO_SERIALIZATION_QUIRK_ENDIAN_DEPENDENT |
+      RETRO_SERIALIZATION_QUIRK_PLATFORM_DEPENDENT;
    /* Performance level for interpreter CPU core is 16 */
    unsigned level           = 16;
 
@@ -1246,6 +1251,8 @@ bool retro_load_game(const struct retro_game_info *info)
 {
    if (!info)
       return false;
+
+   serialized_state_size = 0;
 
    check_variables();
    resolution_mode = g_resolution_mode;
@@ -1565,6 +1572,7 @@ void retro_unload_game(void)
 
    renderer_running = false;
    rendering_started = false;
+   serialized_state_size = 0;
    first_ctx_reset = 1;
 #if !defined(_USEGLEW_)
    glsm_context_ready = false;
