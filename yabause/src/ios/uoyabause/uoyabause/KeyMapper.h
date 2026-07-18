@@ -21,6 +21,9 @@ typedef NS_ENUM(NSInteger, KeyMapMappableButton) {
     MFI_DPAD_DOWN,
     MFI_DPAD_LEFT,
     MFI_DPAD_RIGHT,
+    MFI_BUTTON_HOME,
+    MFI_BUTTON_MENU,
+    MFI_BUTTON_OPTION
 };
 
 @interface KeyMapper : NSObject<NSCopying>
@@ -28,10 +31,10 @@ typedef NS_ENUM(NSInteger, KeyMapMappableButton) {
 -(void)loadFromDefaults;
 -(void) resetToDefaults;
 -(void) saveKeyMapping;
--(void) mapKey:(SaturnKey)keyboardKey ToControl:(KeyMapMappableButton)button;
--(void) unmapKey:(SaturnKey)keyboardKey;
--(SaturnKey) getMappedKeyForControl:(KeyMapMappableButton)button;
+-(void) mapKey:(SaturnKeyXX)keyboardKey ToControl:(KeyMapMappableButton)button;
+-(void) unmapKey:(SaturnKeyXX)keyboardKey;
+-(SaturnKeyXX) getMappedKeyForControl:(KeyMapMappableButton)button;
 +(NSString*) controlToDisplayName:(KeyMapMappableButton)button;
--(NSArray*) getControlsForMappedKey:(SaturnKey) keyboardKey;
+-(NSArray*) getControlsForMappedKey:(SaturnKeyXX) keyboardKey;
 
 @end

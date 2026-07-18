@@ -2,68 +2,65 @@ project( yabause-qt )
 
 yab_port_start()
 
-option(YAB_USE_QT5 "Use Qt 5 if available." ON)
+find_package(Qt6 COMPONENTS Widgets QUIET)
 
-if(YAB_USE_QT5) 
-	find_package(Qt5 COMPONENTS Widgets QUIET)
+# FetchContentモジュールのインクルード
+include(FetchContent)
+
+# ICUのバイナリダウンロードと解凍設定
+FetchContent_Declare(
+    icu
+    URL https://github.com/unicode-org/icu/releases/download/release-76-1/icu4c-76_1-Win64-MSVC2022.zip
+    URL_HASH SHA256=bedba77dd1feca09e9ae9922109a285c0ecf46d09c80b65eae6eae63a4e155dc
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE  # タイムスタンプを解凍時のものに設定
+)
+
+# ICUの解凍とインクルード設定
+FetchContent_GetProperties(icu)
+if(NOT icu_POPULATED)
+    FetchContent_Populate(icu)
 endif()
 
-if(Qt5_FOUND) 
-	message(STATUS "Qt5 Found")
-
-	if( YAB_WANT_OPENGL )
-        	find_package(Qt5OpenGL)
-	endif()
-
-	include_directories(${Qt5Widgets_INCLUDE_DIRS})
-	add_definitions(${Qt5Widgets_DEFINITIONS}) 
-
-	if (WIN32)
-        	find_package(Qt5Core)
-	endif()
-	find_package(Qt5Multimedia REQUIRED)
-	add_definitions(-DHAVE_QT_MULTIMEDIA=1)
-
-	find_package(Qt5WebEngineWidgets REQUIRED)
-	include_directories(${Qt5WebEngineWidgets_INCLUDE_DIRS})
-	add_definitions(${Qt5WebEngineWidgets_DEFINITIONS}) 
+# ICUのインクルードパスとライブラリパスを設定
+set(ICU_INCLUDE_DIR "${icu_SOURCE_DIR}/include")
+set(ICU_LIBRARY_DIR "${icu_SOURCE_DIR}/lib64")
+set(ICU_BIN_DIR "${icu_SOURCE_DIR}/bin64")
 
 
-    # Since Qt5's cmake script doesn't set it, we will have to
-    SET(QT_BINARY_DIR "${_qt5Core_install_prefix}/bin")
-    if (MSYS2_BUILD)
-        SET(QT_PLUGINS_DIR "${_qt5Core_install_prefix}/share/qt5/plugins")
-    else()
-        SET(QT_PLUGINS_DIR "${_qt5Core_install_prefix}/plugins")
-    endif()
+if (YAB_WANT_VULKAN)
+	include_directories( ${VULKAN_INCLUDE_DIRS} )
+endif()
 
-else() 
-	set( QT_USE_QTCORE TRUE )
-	set( QT_USE_QTGUI TRUE )
-	set ( QT_USE_QTMULTIMEDIA TRUE )
-	if( YAB_WANT_OPENGL )
-		set( QT_USE_QTOPENGL TRUE )
-	endif()
-	if (WIN32)
-		set( QT_USE_QTMAIN TRUE )
-	endif()
-	
-	find_package(Qt4)
+if( YAB_WANT_OPENGL )
+	Find_package(Qt6OpenGL)
+	Find_package(Qt6OpenGLWidgets)
+	include_directories(${Qt6OpenGLWidgets_INCLUDE_DIRS})
+	include_directories(${Qt6OpenGL_INCLUDE_DIRS})
+endif()
 
-	if (NOT QT4_FOUND)
-		message(STATUS "NO QT4_FOUND OR Qt5_FOUND")
-		return ()
-	endif ()
+include_directories(${Qt6Widgets_INCLUDE_DIRS})
+add_definitions(${Qt6Widgets_DEFINITIONS}) 
 
-	message (WARNING "Qt4 is deprecated. Support will be removed in the future.")
+if (WIN32)
+	find_package(Qt6Core)
+endif()
 
-	if (QT_QTMULTIMEDIA_FOUND)
-		add_definitions(-DHAVE_QT_MULTIMEDIA=1)
-	endif ()
+find_package(Qt6Multimedia REQUIRED)
+add_definitions(-DHAVE_QT_MULTIMEDIA=1)
 
-	# dunno what it does exactly ... but seem required
-	include( ${QT_USE_FILE} )
-endif() 
+#find_package(Qt5WebEngineWidgets REQUIRED)
+#include_directories(${Qt5WebEngineWidgets_INCLUDE_DIRS})
+#add_definitions(${Qt5WebEngineWidgets_DEFINITIONS}) 
+
+
+# Since Qt5's cmake script doesn't set it, we will have to
+set(_qt6Core_install_prefix "${Qt6_DIR}/../../../") 
+SET(QT_BINARY_DIR "${_qt6Core_install_prefix}/bin")
+if (MSYS2_BUILD)
+	SET(QT_PLUGINS_DIR "${_qt6Core_install_prefix}/share/qt6/plugins")
+else()
+	SET(QT_PLUGINS_DIR "${_qt6Core_install_prefix}/plugins")
+endif()
 
 
 # qt resources file
@@ -85,6 +82,10 @@ if(APPLE)
     find_library(AUDIO_LIBRARY AudioUnit)
     set(yabause_qt_macosx_LIBRARIES ${AUDIO_LIBRARY})
 endif()
+
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
+set(CMAKE_AUTOUIC ON)
 
 # qt forms
 set( yabause_qt_FORMS
@@ -164,6 +165,13 @@ set( yabause_qt_MOC_HEADERS
 	VolatileSettings.h
 	Settings.h
 	YabauseThread.h 
+	QGameInfo.h
+#	GameItemDelegate.h
+	filesearchwidget.h
+	filesearchworker.h
+	qprogressindicator.h
+	GameTableView.h
+	ImageLoader.h
 	)
 
 # C sources
@@ -172,6 +180,7 @@ set( yabause_qt_SOURCES
 	QtYabause.cpp
 	CommonDialogs.cpp
 	PerQt.c
+	GetPin.cpp
 	ui/UIYabause.cpp
 	ui/UISettings.cpp
 	ui/UIAbout.cpp
@@ -207,10 +216,18 @@ set( yabause_qt_SOURCES
     ui/UIMemoryEditor.cpp
 	ui/UIMemorySearch.cpp
 	ui/WebLoginWindow.cpp
+    filesearchwidget.cpp
+    filesearchworker.cpp
+    qprogressindicator.cpp
 	Settings.cpp
 	VolatileSettings.cpp
 	YabauseThread.cpp
-	Arguments.cpp )
+	QGameInfo.cpp
+#	GameItemDelegate.cpp
+	Arguments.cpp
+	GameTableView.cpp
+	ImageLoader.cpp
+	)
 
 if( OPENGL_FOUND )
 	set( yabause_qt_SOURCES ${yabause_qt_SOURCES} YabauseGL.cpp )
@@ -218,15 +235,14 @@ else()
 	set( yabause_qt_SOURCES ${yabause_qt_SOURCES} YabauseSoftGL.cpp )
 endif()
 
-if(Qt5_FOUND) 
-	QT5_ADD_RESOURCES( yabause_qt_RCC_RESOURCES ${yabause_qt_RESOURCES} )
-	QT5_WRAP_UI( yabause_qt_UI_FORMS ${yabause_qt_FORMS} )
-	QT5_WRAP_CPP( yabause_qt_MOC_SOURCES ${yabause_qt_MOC_HEADERS} )
-else() 
-	QT4_ADD_RESOURCES( yabause_qt_RCC_RESOURCES ${yabause_qt_RESOURCES} )
-	QT4_WRAP_UI( yabause_qt_UI_FORMS ${yabause_qt_FORMS} )
-	QT4_WRAP_CPP( yabause_qt_MOC_SOURCES ${yabause_qt_MOC_HEADERS} )
-endif() 
+if (YAB_WANT_VULKAN)
+#set( yabause_qt_SOURCES ${yabause_qt_SOURCES} ../vulkan/Window_glfw.cpp )
+set( yabause_qt_SOURCES ${yabause_qt_SOURCES} QYabVulkanWidget.cpp QYabVulkanWidget.h )
+endif()
+
+QT6_ADD_RESOURCES( yabause_qt_RCC_RESOURCES ${yabause_qt_RESOURCES} )
+QT6_WRAP_UI( yabause_qt_UI_FORMS ${yabause_qt_FORMS} )
+QT6_WRAP_CPP( yabause_qt_MOC_SOURCES ${yabause_qt_MOC_HEADERS} )
 
 set( yabause_qt_SOURCES ${yabause_qt_SOURCES} resources/icons/yabause.icns )
 set_source_files_properties( resources/icons/yabause.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources )
@@ -241,24 +257,14 @@ add_executable( yabause-qt WIN32
 	${yabause_qt_UI_FORMS}
 	${yabause_qt_MOC_SOURCES} )
 
-if (Qt5_FOUND)
+
 include_directories(
 	.
 	${CMAKE_CURRENT_BINARY_DIR}
 	${CMAKE_CURRENT_SOURCE_DIR}/ui
-	${Qt5Widgets_INCLUDE_DIRS}
-	${Qt5OpenGL_INCLUDE_DIRS} 
-	${Qt5Multimedia_INCLUDE_DIRS} )
-else()
-include_directories(
-	.
-	${CMAKE_CURRENT_BINARY_DIR}
-	${CMAKE_CURRENT_SOURCE_DIR}/ui
-	${QT_INCLUDE_DIR}
-	${QT_QTCORE_INCLUDE_DIR}
-	${QT_QTGUI_INCLUDE_DIR}
-	${QT_QTOPENGL_INCLUDE_DIR} )
-endif()
+	${Qt6Widgets_INCLUDE_DIRS}
+	${Qt6OpenGL_INCLUDE_DIRS} 
+	${Qt6Multimedia_INCLUDE_DIRS} )
 
 if ("${CMAKE_SYSTEM_NAME}" STREQUAL "Linux")
   # git clone https://github.com/firebase/firebase-cpp-sdk.git -b v6.11.0 yabause/src/qt/firebase-cpp-sdk
@@ -268,6 +274,7 @@ else()
   # SET var=%cd%
 	# bitsadmin.exe /TRANSFER htmlget https://dl.google.com/firebase/sdk/cpp/firebase_cpp_sdk_6.11.0.zip %var%\a.zip
 	# tar -v -xf a.zip -C yabause\src\qt\
+	#set(MSVC_RUNTIME_MODE MT)
 	set(MSVC_RUNTIME_MODE MD)
 	add_subdirectory( firebase_cpp_sdk )
 	set( FIREBASE_TARGETS firebase_app firebase_auth firebase_storage firebase_database)
@@ -293,12 +300,61 @@ target_link_libraries( yabause-qt ${yabause_qt_windows_LIBRARIES} )
 target_link_libraries( yabause-qt ${yabause_qt_macosx_LIBRARIES} )
 target_link_libraries( yabause-qt ${LIBCHDR_LIBRARIES} )
 target_link_libraries( yabause-qt ${zlib_STATIC_LIBRARIES} )
-if (Qt5_FOUND)
-	target_link_libraries( yabause-qt ${Qt5Widgets_LIBRARIES} ${Qt5OpenGL_LIBRARIES} ${Qt5Core_QTMAIN_LIBRARIES} ${Qt5Multimedia_LIBRARIES})
+
+include_directories(${ICU_INCLUDE_DIR})
+
+target_link_libraries(yabause-qt PRIVATE ${ICU_LIBRARY_DIR}/icuuc.lib ${ICU_LIBRARY_DIR}/icuin.lib ${ICU_LIBRARY_DIR}/icudt.lib)
+
+# OpenSSL for https
+if(WIN32) 
+
+include_directories( ${CMAKE_CURRENT_SOURCE_DIR}/include )
+
+# 64bit
+if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+	target_link_libraries( yabause-qt ${CMAKE_CURRENT_SOURCE_DIR}/lib/x64/libssl.lib)
+	target_link_libraries( yabause-qt ${CMAKE_CURRENT_SOURCE_DIR}/lib/x64/libcrypto.lib)
 else()
-	target_link_libraries( yabause-qt ${QT_LIBRARIES} )
+	target_link_libraries( yabause-qt ${CMAKE_CURRENT_SOURCE_DIR}/lib/x86/libssl-1_1.lib)
+	target_link_libraries( yabause-qt ${CMAKE_CURRENT_SOURCE_DIR}/lib/x86/libcrypto-1_1.lib)
 endif()
+
+# WinSparkle
+include_directories( ${CMAKE_CURRENT_SOURCE_DIR}/winsparkle/include )
+
+if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+	target_link_libraries( yabause-qt ${CMAKE_CURRENT_SOURCE_DIR}/winsparkle/x64/Release/WinSparkle.lib)
+else()
+	target_link_libraries( yabause-qt ${CMAKE_CURRENT_SOURCE_DIR}/winsparkle/Release/WinSparkle.lib)
+endif()
+
+
+
+else()
+	
+  find_package(OpenSSL REQUIRED) 
+	if( OpenSSL_FOUND )
+		include_directories(${OPENSSL_INCLUDE_DIRS})
+		link_directories(${OPENSSL_LIBRARIES})
+		message(STATUS "Using OpenSSL ${OPENSSL_VERSION}")
+		target_link_libraries(yabause-qt ${OPENSSL_LIBRARIES})
+  endif()
+
+endif()
+
+target_link_libraries( yabause-qt 
+	${Qt6Widgets_LIBRARIES} 
+	${Qt6OpenGL_LIBRARIES} 
+	${Qt6OpenGLWidgets_LIBRARIES} 
+	${Qt6Core_QTMAIN_LIBRARIES} 
+	${Qt6Multimedia_LIBRARIES})
+
 target_link_libraries( yabause-qt ${FIREBASE_TARGETS} )
+
+if (YAB_WANT_VULKAN)
+	target_link_libraries( yabause-qt ${GLFW_LIBRARIES} ${LIBVULKAN} ${SHADERC_LIBRARIES} )
+endif()
+
 yab_port_success(yabause-qt)
 
 # copy need files for running
@@ -317,6 +373,17 @@ configure_file(yabause.desktop.in ${YAB_PORT_NAME}.desktop)
 
 if (WIN32)
 	install(TARGETS yabause-qt DESTINATION ".")
+
+	install(FILES ${ICU_BIN_DIR}/icuuc76.dll DESTINATION ".")
+	install(FILES ${ICU_BIN_DIR}/icuin76.dll DESTINATION ".")
+	install(FILES ${ICU_BIN_DIR}/icudt76.dll DESTINATION ".")
+
+	if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+		install( FILES ${CMAKE_CURRENT_SOURCE_DIR}/winsparkle/x64/Release/WinSparkle.dll DESTINATION ".")
+	else()
+		install( FILES ${CMAKE_CURRENT_SOURCE_DIR}/winsparkle/Release/WinSparkle.dll DESTINATION ".")
+	endif()
+
 	set_property(INSTALL $<TARGET_FILE_NAME:yabause-qt>
 		PROPERTY CPACK_START_MENU_SHORTCUTS "Yaba Sanshiro"
 	)
@@ -339,27 +406,17 @@ if (WIN32)
 			install(FILES ${QT_BINARY_DIR}/SDL2.dll DESTINATION ".")
 		endif ()
 	endif ()
-	if(Qt5_FOUND) 
-		install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIGURATION>/ DESTINATION "." )
-	else()
-		install(FILES ${QT_BINARY_DIR}/QtCore4.dll DESTINATION ".")
-		install(FILES ${QT_BINARY_DIR}/QtGui4.dll DESTINATION ".")
-		install(FILES ${QT_BINARY_DIR}/QtOpenGL4.dll DESTINATION ".")
-		if (QT_QTMULTIMEDIA_FOUND)
-			install(FILES ${QT_BINARY_DIR}/QtMultimedia4.dll DESTINATION ".")        
-		endif()
-	endif()
+	install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIGURATION>/ DESTINATION "." )
 
 	#install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/../../AUTHORS    DESTINATION "." RENAME AUTHORS.txt)
 	#install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/../../ChangeLog  DESTINATION "." RENAME ChangeLog.txt)
 	install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/../../COPYING.txt    DESTINATION "." RENAME COPYING.txt)
-	install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/../../EULA.txt    DESTINATION "." RENAME EULA.txt)
 	install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/../../../win_template/readme.txt     DESTINATION "." RENAME README.txt)
-	#install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/../../README     DESTINATION "." RENAME README.txt)
+	install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/../../settings.ini     DESTINATION "." RENAME settings.ini)
 	#install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/../../README.WIN DESTINATION "." RENAME README.WIN.txt)
-	install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/donate.png DESTINATION "." )
-	install(FILES c:/bin/libeay32.dll DESTINATION "." )
-	install(FILES c:/bin/ssleay32.dll DESTINATION "." )
+	#install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/donate.png DESTINATION "." )
+	#install(FILES c:/bin/libeay32.dll DESTINATION "." )
+	#install(FILES c:/bin/ssleay32.dll DESTINATION "." )
 	
 	if (MINGW)
 		get_filename_component( Mingw_Path ${CMAKE_CXX_COMPILER} PATH )
@@ -382,9 +439,9 @@ if (WIN32)
 		endif()
 	endif()
 	
-  if (MSVC)    
-    set (CMAKE_EXE_LINKER_FLAGS /SAFESEH:NO )
-	endif (MSVC)
+    if (MSVC)    
+      set (CMAKE_EXE_LINKER_FLAGS /SAFESEH:NO )
+    endif (MSVC)
 	
 else ()
 	install(TARGETS yabause-qt DESTINATION "bin")

@@ -170,9 +170,9 @@ u8 UIHexEditorWnd::readByte(u32 addr)
 {
    if ((addr >= 0x05D00000 && addr < 0x05D80000) ||
       (addr >= 0x05F80000 && addr < 0x05FC0000))
-      return MappedMemoryReadWord(addr & (~0x1), NULL) >> ((1-(addr & 0x1))<<3, NULL);
+      return MappedMemoryReadWordNocache(addr & (~0x1), NULL) >> ((1-(addr & 0x1))<<3, NULL);
    else
-      return MappedMemoryReadByte(addr, NULL);
+      return MappedMemoryReadByteNocache(addr, NULL);
 }
 
 void UIHexEditorWnd::writeByte(u32 addr, u8 val)
@@ -180,12 +180,12 @@ void UIHexEditorWnd::writeByte(u32 addr, u8 val)
    if ((addr >= 0x05D00000 && addr < 0x05D80000) ||
       (addr >= 0x05F80000 && addr < 0x05FC0000))
    {
-      u16 word = MappedMemoryReadWord(addr & (~0x1), NULL) & (0xFF << ((addr & 0x1)<<3), NULL);
+      u16 word = MappedMemoryReadWordNocache(addr & (~0x1), NULL) & (0xFF << ((addr & 0x1)<<3), NULL);
       word |= (val << ((1-(addr & 0x1))<<3));
-      MappedMemoryWriteWord(addr & (~0x1), word, NULL);
+      MappedMemoryWriteWordNocache(addr & (~0x1), word, NULL);
    }
    else
-      MappedMemoryWriteByte(addr, val, NULL);
+      MappedMemoryWriteByteNocache(addr, val, NULL);
 }
 
 void UIHexEditorWnd::clear(u32 index, int len)
@@ -251,7 +251,7 @@ void UIHexEditorWnd::adjustSettings()
    int fontSize = fontMetrics().height();
 
    fontAscent = fontMetrics().ascent();
-   fontWidth = fontMetrics().width(QLatin1Char('9'));
+   fontWidth = fontMetrics().horizontalAdvance(QLatin1Char('9'));
    fontHeight = fontMetrics().height();
 
    verticalScrollBar()->setRange(startAddress / bytesPerLine, (endAddress / bytesPerLine) - (areaSize.height() / fontHeight) + 1);
@@ -784,7 +784,7 @@ void UIHexEditorWnd::drawTextArea(QPainter *painter, int firstLineIdx, u32 lastL
 
             QString text=QString((char)readByte(addr + lineIdx + colIdx));
 
-            if (fontMetrics().width(text) == 0)
+            if (fontMetrics().horizontalAdvance(text) == 0)
                text = QString('.');
 
             painter->drawText(xPosAscii, yPos, text);
@@ -1008,7 +1008,7 @@ bool UIHexEditorWnd::saveTab(QString filename)
 
 bool UIHexEditorWnd::saveMemory(QString filename, u32 startAddress, u32 endAddress)
 {
-	FILE *fp = fopen(filename.toLatin1(), "wb");
+	FILE *fp = fopen_utf8(filename.toLatin1(), "wb");
 	u32 size = (u32)(endAddress - startAddress);
 
 	if (fp == NULL)

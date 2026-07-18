@@ -21,6 +21,13 @@
 
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
 
+
+    <item
+        android:id="@+id/menu_auto_backupsync"
+        android:icon="@drawable/cloud_sync_48px"
+        android:title="@string/auto_backup_sync"
+        />
+
     <item
         android:id="@+id/menu_item_setting"
         android:icon="@drawable/baseline_settings_white_24"
@@ -43,12 +50,6 @@
     <item
         android:id="@+id/menu_item_login"
         android:title="@string/sign_in"
-        android:icon="@drawable/ic_baseline_person_24px"
-        />
-
-    <item
-        android:id="@+id/menu_item_login_to_other"
-        android:title="@string/sign_in_to_other_devices"
         android:icon="@drawable/ic_baseline_person_24px"
         />
 

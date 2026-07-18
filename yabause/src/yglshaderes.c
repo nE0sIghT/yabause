@@ -17,8 +17,8 @@ GNU General Public License for more details.
 along with YabaSanshiro; if not, write to the Free Software
 Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 */
-   
- 
+
+
 //#ifdef __ANDROID__
 #include <stdlib.h>
 #include <math.h>
@@ -26,9 +26,6 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 #include "yui.h"
 #include "vidshared.h"
 #include "shaders/FXAA_DefaultES.h"
-
-extern void YuiMsg(const char *format, ...);
-extern GLuint RBGGenerator_getTexture( int id );
 
 #if defined(__LIBRETRO__)
 #define YGLLOG YuiMsg
@@ -50,8 +47,14 @@ extern int GlHeight;
 extern int GlWidth;
 static GLuint _prgid[PG_MAX] = { 0 };
 
+char * lastShaderError = NULL;
 
-static void Ygl_printShaderError( GLuint shader )
+char * getLastShaderError(){
+  return lastShaderError;
+}
+
+
+static void Ygl_printShaderError(int id,  GLuint shader )
 {
   GLsizei bufSize;
 
@@ -65,6 +68,13 @@ static void Ygl_printShaderError( GLuint shader )
       GLsizei length;
       glGetShaderInfoLog(shader, bufSize, &length, infoLog);
       YGLLOG("Shaderlog:\n%s\n", infoLog);
+
+      char * buf = malloc(length + 32);
+      sprintf(buf, "By shaer error %d:%s", id, infoLog);
+      //YuiErrorMsg(buf);
+
+      lastShaderError = buf;
+
       free(infoLog);
     }
   }
@@ -163,11 +173,15 @@ int Ygl_uniformVdp1CommonParam(void * p){
   }
 
   if (param->tessLevelInner != -1) {
-    glUniform1f(param->tessLevelInner, (float)TESS_COUNT);
+    // Use dynamic tessellation level if available, otherwise use default
+    float tessLevel = (prg->tessellation_level > 0) ? (float)prg->tessellation_level : (float)YGL_TESS_COUNT;
+    glUniform1f(param->tessLevelInner, tessLevel);
   }
 
   if (param->tessLevelOuter != -1) {
-    glUniform1f(param->tessLevelOuter, (float)TESS_COUNT);
+    // Use dynamic tessellation level if available, otherwise use default
+    float tessLevel = (prg->tessellation_level > 0) ? (float)prg->tessellation_level : (float)YGL_TESS_COUNT;
+    glUniform1f(param->tessLevelOuter, tessLevel);
   }
 
   if (param->fbo != -1){
@@ -178,6 +192,7 @@ int Ygl_uniformVdp1CommonParam(void * p){
     glUniform1i(param->fboheight, _Ygl->height);
 #if !defined(_OGLES3_)
     if (glTextureBarrierNV) glTextureBarrierNV();
+#elif defined(IOS)
 #else
     if( glMemoryBarrier ){
       glMemoryBarrier(GL_FRAMEBUFFER_BARRIER_BIT|GL_TEXTURE_UPDATE_BARRIER_BIT|GL_TEXTURE_FETCH_BARRIER_BIT);
@@ -185,8 +200,8 @@ int Ygl_uniformVdp1CommonParam(void * p){
     }else{
       //glFinish();
     }
-#endif    
-    glActiveTexture(GL_TEXTURE0); 
+#endif
+    glActiveTexture(GL_TEXTURE0);
   }
 
   return 0;
@@ -442,7 +457,7 @@ int Ygl_uniformNormalCramSPC(void * p)
 
   glActiveTexture(GL_TEXTURE2);
   glBindTexture(GL_TEXTURE_2D, prg->lineTexture);
-  
+
   if (prg->interuput_texture != 0) {
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, RBGGenerator_getTexture(prg->interuput_texture));
@@ -748,7 +763,7 @@ int Ygl_uniformPerLineAlpha(void * p)
   prg->preblendmode = prg->blendmode;
   prg->blendmode = 0;
 
-#if !defined(_OGLES3_) && !defined(__APPLE__)
+#if !defined(_OGLES3_)
   glPushDebugGroup(GL_DEBUG_SOURCE_APPLICATION, 0, strlen(__FUNCTION__), __FUNCTION__);
 #endif
 
@@ -837,7 +852,7 @@ int Ygl_cleanupPerLineAlpha(void * p)
     glBindTexture(GL_TEXTURE_2D, YglTM->textureID_in[YglTM->current]);
   }
 
- 
+
   return 0;
 }
 
@@ -849,7 +864,7 @@ int Ygl_uniformNormal_blur(void * p)
 {
   YglProgram * prg;
   prg = p;
-#if !defined(_OGLES3_) && !defined(__APPLE__)
+#if !defined(_OGLES3_)
   glPushDebugGroup(GL_DEBUG_SOURCE_APPLICATION, 0, strlen(__FUNCTION__), __FUNCTION__);
 #endif
 
@@ -993,7 +1008,7 @@ int Ygl_uniformWindow(void * p )
 {
    YglProgram * prg;
    prg = p;
-#if !defined(_OGLES3_) && !defined(__APPLE__)
+#if !defined(_OGLES3_)
    glPushDebugGroup(GL_DEBUG_SOURCE_APPLICATION, 0, strlen(__FUNCTION__), __FUNCTION__);
 #endif
    glUseProgram(prg->prgid );
@@ -1060,7 +1075,7 @@ int Ygl_uniformVdp1Normal(void * p )
 {
    YglProgram * prg;
    prg = p;
-#if !defined(_OGLES3_) && !defined(__APPLE__)
+#if !defined(_OGLES3_)
    glPushDebugGroup(GL_DEBUG_SOURCE_APPLICATION, 0, strlen(__FUNCTION__), __FUNCTION__);
 #endif
    glEnableVertexAttribArray(prg->vertexp);
@@ -1628,7 +1643,7 @@ int Ygl_uniformStartUserClip(void * p )
 {
    YglProgram * prg;
    prg = p;
-#if !defined(_OGLES3_) && !defined(__APPLE__)
+#if !defined(_OGLES3_)
    glPushDebugGroup(GL_DEBUG_SOURCE_APPLICATION, 0, strlen(__FUNCTION__), __FUNCTION__);
 #endif
 
@@ -1791,6 +1806,77 @@ refrence:
 
 */
 
+const GLchar Yglprg_vdp2_drawfb_cram_vulkan_f[] =
+#if defined(_OGLES3_)
+"#version 310 es \n"
+"precision highp sampler2D; \n"
+"precision highp float;\n"
+#else
+"#version 430 \n"
+#endif
+"layout(binding = 0) uniform vdp2regs { \n"
+" mat4 matrix; \n"
+" float u_pri[8]; \n"
+" float u_alpha[8]; \n"
+" vec4 u_coloroffset;\n"
+" float u_cctl; \n"
+" float u_emu_height; \n"
+" float u_vheight; \n"
+" int u_color_ram_offset; \n"
+" float u_viewport_offset; \n"
+" int u_sprite_window; \n"
+" float u_from;\n"
+" float u_to;\n"
+" int u_dir;\n"
+"}; \n"
+"layout(binding = 1) uniform highp sampler2D s_vdp1FrameBuffer;\n"
+"layout(binding = 2) uniform sampler2D s_color; \n"
+"layout(binding = 3) uniform sampler2D s_line; \n"
+"layout(location = 0) in vec2 v_texcoord;\n"
+"layout(location = 0) out vec4 fragColor;\n"
+"int getLinePos( int dir ){\n"
+"  switch(dir){\n"
+"    case 1: // 90\n"
+"      return int((u_vheight - gl_FragCoord.x-u_viewport_offset) * u_emu_height);\n"
+"      break;\n"
+"    case 2: // 270\n"
+"      return int((gl_FragCoord.x-u_viewport_offset) * u_emu_height);\n"
+"      break;\n"
+"    case 3: // 180\n"
+"      return int((u_vheight - gl_FragCoord.y-u_viewport_offset) * u_emu_height);\n"
+"      break;\n"
+"    default:\n"
+"      return int((gl_FragCoord.y-u_viewport_offset) * u_emu_height);\n"
+"      break;\n"
+"  }\n"
+"  return 0;\n"
+"}\n"
+"void main()\n"
+"{\n"
+"  vec2 addr = v_texcoord;\n"
+"  highp vec4 fbColor = texture(s_vdp1FrameBuffer,addr);\n"
+"  int additional = int(fbColor.a * 255.0);\n"
+"  if( (additional & 0x80) == 0 ){ discard; } // show? \n"
+"  int prinumber = (additional&0x07);\n"
+"  highp float depth = u_pri[ prinumber ];\n"
+"  if( depth < u_from || depth > u_to ){ discard; } \n"
+"  vec4 txcol=vec4(0.0,0.0,0.0,1.0);\n"
+"  if( (additional & 0x40) != 0 ){  // index color? \n"
+"    if( fbColor.b >= 0.45 ) {discard;} // draw shadow last path \n"
+"    int colindex = ( int(fbColor.g*65280.0) | int(fbColor.r*255.0)); \n"
+"    if( colindex == 0 ){ if( u_sprite_window != 0 || prinumber == 0) { discard;} } // hard/vdp1/hon/p02_11.htm 0 data is ignoerd \n"
+"    colindex = colindex + u_color_ram_offset; \n"
+"    txcol = texelFetch( s_color,  ivec2( colindex ,0 )  , 0 );\n"
+"    fragColor = txcol;\n"
+"  }else{ // direct color \n"
+"    if(u_sprite_window == 0 ){ \n"
+"       fragColor = fbColor;\n"
+"    }else{\n"
+"       if( fbColor.r == 0.0 && fbColor.g == 0.0 && fbColor.b == 0.0 ){ discard; }else{ fragColor = fbColor; }  \n"
+"    }"
+"  } \n"
+"  fragColor += u_coloroffset;  \n";
+
 const GLchar Yglprg_vdp2_drawfb_cram_f[] =
 #if defined(_OGLES3_)
 "#version 300 es \n"
@@ -1809,26 +1895,30 @@ const GLchar Yglprg_vdp2_drawfb_cram_f[] =
 " int u_color_ram_offset; \n"
 " float u_viewport_offset; \n"
 " int u_sprite_window; \n"
+" int u_dir; \n"
 "}; \n"
 "uniform highp sampler2D s_vdp1FrameBuffer;\n"
 "uniform sampler2D s_color; \n"
-"uniform sampler2D s_line; \n"
+"uniform highp sampler2D s_line; \n"
 "uniform float u_from;\n"
 "uniform float u_to;\n"
 "in vec2 v_texcoord;\n"
 "out vec4 fragColor;\n"
+"int getLinePos( int dir ){\n"
+"  return int((u_vheight - gl_FragCoord.y-u_viewport_offset) * u_emu_height);\n"
+"}\n"
 "void main()\n"
 "{\n"
 "  vec2 addr = v_texcoord;\n"
 "  highp vec4 fbColor = texture(s_vdp1FrameBuffer,addr);\n"
 "  int additional = int(fbColor.a * 255.0);\n"
 "  if( (additional & 0x80) == 0 ){ discard; } // show? \n"
-"  int prinumber = (additional&0x07); "
+"  int prinumber = (additional&0x07);\n"
 "  highp float depth = u_pri[ prinumber ];\n"
 "  if( depth < u_from || depth > u_to ){ discard; } \n"
 "  vec4 txcol=vec4(0.0,0.0,0.0,1.0);\n"
 "  if( (additional & 0x40) != 0 ){  // index color? \n"
-"    if( fbColor.b != 0.0 ) {discard;} // draw shadow last path \n"
+"    if( fbColor.b >= 0.45 ) {discard;} // draw shadow last path \n"
 "    int colindex = ( int(fbColor.g*65280.0) | int(fbColor.r*255.0)); \n"
 "    if( colindex == 0 ){ if( u_sprite_window != 0 || prinumber == 0) { discard;} } // hard/vdp1/hon/p02_11.htm 0 data is ignoerd \n"
 "    colindex = colindex + u_color_ram_offset; \n"
@@ -1843,8 +1933,9 @@ const GLchar Yglprg_vdp2_drawfb_cram_f[] =
 "  } \n"
 "  fragColor += u_coloroffset;  \n";
 
+
 /*
- Color calculation option 
+ Color calculation option
   hard/vdp2/hon/p09_21.htm
 */
 const GLchar Yglprg_vdp2_drawfb_cram_no_color_col_f[]    = " fragColor.a = 1.0; \n";
@@ -1864,55 +1955,234 @@ const GLchar Yglprg_vdp2_drawfb_cram_msb_color_add_f[]   = " if( txcol.a != 0.0 
 const GLchar Yglprg_vdp2_drawfb_line_blend_f[] =
 "  ivec2 linepos; \n "
 "  linepos.y = 0; \n "
-"  linepos.x = int((u_vheight - gl_FragCoord.y-u_viewport_offset ) * u_emu_height);\n"
+"  linepos.x = getLinePos(u_dir);\n"
 "  vec4 lncol = texelFetch( s_line, linepos,0 );\n"
 "  fragColor = (fragColor*fragColor.a) + lncol*(1.0-fragColor.a); \n";
 
 const GLchar Yglprg_vdp2_drawfb_line_add_f[] =
 "  ivec2 linepos; \n "
 "  linepos.y = 0; \n "
-"  linepos.x = int((u_vheight - gl_FragCoord.y-u_viewport_offset) * u_emu_height);\n"
+"  linepos.x = getLinePos(u_dir);\n"
 "  vec4 lncol = texelFetch( s_line, linepos,0 );\n"
 "  fragColor =  fragColor + lncol * fragColor.a ;  \n";
 
 const GLchar Yglprg_vdp2_drawfb_cram_less_line_dest_alpha_f[] =
 "  ivec2 linepos; \n "
 "  linepos.y = 0; \n "
-"  linepos.x = int((u_vheight - gl_FragCoord.y-u_viewport_offset) * u_emu_height);\n"
+"  linepos.x = getLinePos(u_dir);\n"
 "  vec4 lncol = texelFetch( s_line, linepos,0 );      \n"
-"  if( depth <= u_cctl ){ fragColor = (fragColor*lncol.a) + lncol*(1.0-lncol.a); } \n";
+"  if( depth <= u_cctl ){ fragColor = (fragColor*(1.0-lncol.a)) + lncol*lncol.a; } \n";
 
 const GLchar Yglprg_vdp2_drawfb_cram_equal_line_dest_alpha_f[] =
 "  ivec2 linepos; \n "
 "  linepos.y = 0; \n "
-"  linepos.x = int((u_vheight - gl_FragCoord.y-u_viewport_offset) * u_emu_height);\n"
+"  linepos.x = getLinePos(u_dir);\n"
 "  vec4 lncol = texelFetch( s_line, linepos,0 );      \n"
-"  if( depth == u_cctl ){ fragColor = (lncol*lncol.a) + fragColor*(1.0-lncol.a); } \n";
+"  if( depth == u_cctl ){ fragColor = (fragColor*(1.0-lncol.a)) + lncol*lncol.a; } \n";
 
 const GLchar Yglprg_vdp2_drawfb_cram_more_line_dest_alpha_f[] =
 "  ivec2 linepos; \n "
 "  linepos.y = 0; \n "
-"  linepos.x = int((u_vheight - gl_FragCoord.y-u_viewport_offset) * u_emu_height);\n"
+"  linepos.x = getLinePos(u_dir);\n"
 "  vec4 lncol = texelFetch( s_line, linepos,0 );      \n"
-"  if( depth >= u_cctl ){ fragColor =(fragColor*lncol.a) + lncol*(1.0-lncol.a); } \n";
+"  if( depth >= u_cctl ){ fragColor = (fragColor*(1.0-lncol.a)) + lncol*lncol.a; } \n";
 
 const GLchar Yglprg_vdp2_drawfb_cram_msb_line_dest_alpha_f[] =
 "  ivec2 linepos; \n "
 "  linepos.y = 0; \n "
-"  linepos.x = int((u_vheight - gl_FragCoord.y-u_viewport_offset) * u_emu_height);\n"
+"  linepos.x = getLinePos(u_dir);\n"
+"  vec4 lncol = texelFetch( s_line, linepos,0 );      \n"
+"  if( txcol.a != 0.0 ){ fragColor = (fragColor*(1.0-lncol.a)) + lncol*lncol.a; }\n";
+
+const GLchar Yglprg_vdp2_drawfb_line_blend_fv[] =
+"  ivec2 linepos; \n "
+"  linepos.y = 0; \n "
+"  linepos.x = getLinePos(u_dir);\n"
+"  vec4 lncol = texelFetch( s_line, linepos,0 );\n"
+"  fragColor = (fragColor*fragColor.a) + lncol*(1.0-fragColor.a); \n";
+
+const GLchar Yglprg_vdp2_drawfb_line_add_fv[] =
+"  ivec2 linepos; \n "
+"  linepos.y = 0; \n "
+"  linepos.x = getLinePos(u_dir);\n"
+"  vec4 lncol = texelFetch( s_line, linepos,0 );\n"
+"  fragColor =  fragColor + lncol * fragColor.a ;  \n";
+
+const GLchar Yglprg_vdp2_drawfb_cram_less_line_dest_alpha_fv[] =
+"  ivec2 linepos; \n "
+"  linepos.y = 0; \n "
+"  linepos.x = getLinePos(u_dir);\n"
+"  vec4 lncol = texelFetch( s_line, linepos,0 );      \n"
+"  if( depth <= u_cctl ){ fragColor = (fragColor*lncol.a) + lncol*(1.0-lncol.a); } \n";
+
+const GLchar Yglprg_vdp2_drawfb_cram_equal_line_dest_alpha_fv[] =
+"  ivec2 linepos; \n "
+"  linepos.y = 0; \n "
+"  linepos.x = getLinePos(u_dir);\n"
+"  vec4 lncol = texelFetch( s_line, linepos,0 );      \n"
+"  if( depth == u_cctl ){ fragColor = (lncol*lncol.a) + fragColor*(1.0-lncol.a); } \n";
+
+const GLchar Yglprg_vdp2_drawfb_cram_more_line_dest_alpha_fv[] =
+"  ivec2 linepos; \n "
+"  linepos.y = 0; \n "
+"  linepos.x = getLinePos(u_dir);\n"
+"  vec4 lncol = texelFetch( s_line, linepos,0 );      \n"
+"  if( depth >= u_cctl ){ fragColor =(fragColor*lncol.a) + lncol*(1.0-lncol.a); } \n";
+
+const GLchar Yglprg_vdp2_drawfb_cram_msb_line_dest_alpha_fv[] =
+"  ivec2 linepos; \n "
+"  linepos.y = 0; \n "
+"  linepos.x = getLinePos(u_dir);\n"
 "  vec4 lncol = texelFetch( s_line, linepos,0 );      \n"
 "  if( txcol.a != 0.0 ){ fragColor = (fragColor*lncol.a) + lncol*(1.0-lncol.a); }\n";
-
-
 
 const GLchar Yglprg_vdp2_drawfb_cram_eiploge_f[] =
 "  gl_FragDepth = (depth+1.0)*0.5;\n"
 "}\n";
 
+const GLchar Yglprg_vdp2_drawfb_cram_eiploge_vulkan_f[] =
+"  gl_FragDepth = depth;\n"
+"}\n";
+
+
+
 /*------------------------------------------------------------------------------------
 *  VDP2 Draw Frame buffer Operation( Perline color offset using hblankin )
 *  Chaos Seed
 * ----------------------------------------------------------------------------------*/
+#if 1
+const GLchar Yglprg_vdp2_drawfb_hblank_vulkan_f[] =
+#if defined(_OGLES3_)
+"#version 310 es \n"
+"precision highp sampler2D; \n"
+"precision highp float;\n"
+#else
+"#version 430 \n"
+#endif
+"layout(binding = 0) uniform vdp2regs { \n"
+" mat4 matrix; \n"
+" float u_pri[8]; \n"
+" float u_alpha[8]; \n"
+" vec4 u_coloroffset;\n"
+" float u_cctl; \n"
+" float u_emu_height; \n"
+" float u_vheight; \n"
+" int u_color_ram_offset; \n"
+" float u_viewport_offset; \n"
+" int u_sprite_window; \n"
+" float u_from;\n"
+" float u_to;\n"
+" int u_dir;\n"
+"}; \n"
+"layout(binding = 1) uniform highp sampler2D s_vdp1FrameBuffer;\n"
+"layout(binding = 2) uniform sampler2D s_color; \n"
+"layout(binding = 3) uniform sampler2D s_line; \n"
+"layout(location = 0) in vec2 v_texcoord;\n"
+"layout(location = 0) out vec4 fragColor;\n"
+"int getLinePos( int dir ){\n"
+"  switch(dir){\n"
+"    case 1: // 90\n"
+"      return int((u_vheight - gl_FragCoord.x-u_viewport_offset) * u_emu_height);\n"
+"      break;\n"
+"    case 2: // 270\n"
+"      return int((gl_FragCoord.x-u_viewport_offset) * u_emu_height);\n"
+"      break;\n"
+"    case 3: // 180\n"
+"      return int((u_vheight - gl_FragCoord.y-u_viewport_offset) * u_emu_height);\n"
+"      break;\n"
+"    default:\n"
+"      return int((gl_FragCoord.y-u_viewport_offset) * u_emu_height);\n"
+"      break;\n"
+"  }\n"
+"  return 0;\n"
+"}\n"
+"void main()\n"
+"{\n"
+"  ivec2 linepos; \n "
+"  linepos.y = 0; \n "
+"  linepos.x = getLinePos(u_dir);\n"
+"  vec4 linetex = texelFetch( s_line, linepos,0 ); "
+"  vec2 addr = v_texcoord;\n"
+"  highp vec4 fbColor = texture(s_vdp1FrameBuffer,addr);\n"
+"  int additional = int(fbColor.a * 255.0);\n"
+"  if( (additional & 0x80) == 0 ){ discard; } // show? \n"
+"  highp vec4 linepri = texelFetch( s_line, ivec2(linepos.x,1+(additional&0x07)) ,0 ); \n"
+"  if( linepri.a == 0.0 ) discard; \n"
+"  highp float depth = ((linepri.a*255.0)/10.0)+0.05 ;\n"
+"  if( depth < u_from || depth > u_to ){ discard; } \n"
+"  vec4 txcol=vec4(0.0,0.0,0.0,1.0);\n"
+"  if( (additional & 0x40) != 0 ){  // index color? \n"
+"    if( fbColor.b >= 0.45 ) {discard;} // draw shadow last path \n"
+"    int colindex = ( int(fbColor.g*65280.0) | int(fbColor.r*255.0)); \n"
+"    if( colindex == 0 ){ if( u_sprite_window != 0 || (additional&0x07) == 0 ) { discard;} } // hard/vdp1/hon/p02_11.htm 0 data is ignoerd \n"
+"    colindex = colindex + u_color_ram_offset; \n"
+"    txcol = texelFetch( s_color,  ivec2( colindex ,0 )  , 0 );\n"
+"    fragColor = txcol;\n"
+"  }else{ // direct color \n"
+"    if(u_sprite_window == 0 ){ \n"
+"       fragColor = fbColor;\n"
+"    }else{\n"
+"       if( fbColor.r == 0.0 && fbColor.g == 0.0 && fbColor.b == 0.0 ){ discard; }else{ fragColor = fbColor; }  \n"
+"    }"
+"  } \n"
+"  fragColor.r = clamp( fragColor.r+(linetex.r-0.5)*2.0,0.0,1.0);      \n"
+"  fragColor.g = clamp( fragColor.g+(linetex.g-0.5)*2.0,0.0,1.0);      \n"
+"  fragColor.b = clamp( fragColor.b+(linetex.b-0.5)*2.0,0.0,1.0);      \n";
+#else
+const GLchar Yglprg_vdp2_drawfb_hblank_vulkan_f[] =
+#if defined(_OGLES3_)
+"#version 310 es \n"
+"precision highp sampler2D; \n"
+"precision highp float;\n"
+#else
+"#version 430 \n"
+#endif
+"layout(binding = 0) uniform vdp2regs { \n"
+" mat4 matrix; \n"
+" float u_pri[8]; \n"
+" float u_alpha[8]; \n"
+" vec4 u_coloroffset;\n"
+" float u_cctl; \n"
+" float u_emu_height; \n"
+" float u_vheight; \n"
+" int u_color_ram_offset; \n"
+" float u_viewport_offset; \n"
+" int u_sprite_window; \n"
+" float u_from;\n"
+" float u_to;\n"
+"}; \n"
+"layout(binding = 1) uniform highp sampler2D s_vdp1FrameBuffer;\n"
+"layout(binding = 2) uniform sampler2D s_color; \n"
+"layout(binding = 3) uniform sampler2D s_line; \n"
+"layout(location = 0) in vec2 v_texcoord;\n"
+"layout(location = 0) out vec4 fragColor;\n"
+"void main()\n"
+"{\n"
+"  vec2 addr = v_texcoord;\n"
+"  highp vec4 fbColor = texture(s_vdp1FrameBuffer,addr);\n"
+"  int additional = int(fbColor.a * 255.0);\n"
+"  if( (additional & 0x80) == 0 ){ discard; } // show? \n"
+"  int prinumber = (additional&0x07);\n"
+"  highp float depth = u_pri[ prinumber ];\n"
+"  if( depth < u_from || depth > u_to ){ discard; } \n"
+"  vec4 txcol=vec4(0.0,0.0,0.0,1.0);\n"
+"  if( (additional & 0x40) != 0 ){  // index color? \n"
+"    if( fbColor.b != 0.0 ) {discard;} // draw shadow last path \n"
+"    int colindex = ( int(fbColor.g*65280.0) | int(fbColor.r*255.0)); \n"
+"    if( colindex == 0 ){ if( u_sprite_window != 0 || prinumber == 0) { discard;} } // hard/vdp1/hon/p02_11.htm 0 data is ignoerd \n"
+"    colindex = colindex + u_color_ram_offset; \n"
+"    txcol = texelFetch( s_color,  ivec2( colindex ,0 )  , 0 );\n"
+"    fragColor = txcol;\n"
+"  }else{ // direct color \n"
+"    if(u_sprite_window == 0 ){ \n"
+"       fragColor = fbColor;\n"
+"    }else{\n"
+"       if( fbColor.r == 0.0 && fbColor.g == 0.0 && fbColor.b == 0.0 ){ discard; }else{ fragColor = fbColor; }  \n"
+"    }"
+"  } \n"
+"  fragColor += u_coloroffset;  \n";
+#endif
+
 const GLchar Yglprg_vdp2_drawfb_hblank_f[] =
 #if defined(_OGLES3_)
 "#version 300 es \n"
@@ -1931,6 +2201,7 @@ const GLchar Yglprg_vdp2_drawfb_hblank_f[] =
 " int u_color_ram_offset; \n"
 " float u_viewport_offset; \n"
 " int u_sprite_window; \n"
+" int u_dir; \n"
 "}; \n"
 "uniform highp sampler2D s_vdp1FrameBuffer;\n"
 "uniform sampler2D s_color; \n"
@@ -1955,7 +2226,7 @@ const GLchar Yglprg_vdp2_drawfb_hblank_f[] =
 "  if( depth < u_from || depth > u_to ){ discard; } \n"
 "  vec4 txcol=vec4(0.0,0.0,0.0,1.0);\n"
 "  if( (additional & 0x40) != 0 ){  // index color? \n"
-"    if( fbColor.b != 0.0 ) {discard;} // draw shadow last path \n"
+"    if( fbColor.b >= 0.45 ) {discard;} // draw shadow last path \n"
 "    int colindex = ( int(fbColor.g*65280.0) | int(fbColor.r*255.0)); \n"
 "    if( colindex == 0 ){ if( u_sprite_window != 0 || (additional&0x07) == 0 ) { discard;} } // hard/vdp1/hon/p02_11.htm 0 data is ignoerd \n"
 "    colindex = colindex + u_color_ram_offset; \n"
@@ -1973,8 +2244,8 @@ const GLchar Yglprg_vdp2_drawfb_hblank_f[] =
 "  fragColor.b += (linetex.b-0.5)*2.0;      \n";
 
 
-const GLchar Yglprg_vdp2_drawfb_cram_less_color_col_hblank_f[] = 
-" if( depth <= u_cctl ){ \n" 
+const GLchar Yglprg_vdp2_drawfb_cram_less_color_col_hblank_f[] =
+" if( depth <= u_cctl ){ \n"
 "  vec4 linealpha = texelFetch( s_line,  ivec2(linepos.x,(1+8+((additional>>3)&0x07))) , 0 ); "
 "  fragColor.a = linealpha.a; \n"
 "}else{ fragColor.a = 1.0; } \n ";
@@ -2067,6 +2338,7 @@ const GLchar Yglprg_vdp2_drawfb_shadow_f[] =
 " float u_vheight; \n"
 " float u_viewport_offset; \n"
 " int u_sprite_window; \n"
+" int u_dir; \n"
 "}; \n"
 "uniform highp sampler2D s_vdp1FrameBuffer;\n"
 "in vec2 v_texcoord;\n"
@@ -2078,7 +2350,7 @@ const GLchar Yglprg_vdp2_drawfb_shadow_f[] =
 "  int additional = int(fbColor.a * 255.0);\n"
 "  if( (additional & 0x80) == 0 ){ discard; } // show? \n"
 "  highp float depth = u_pri[ (additional&0x07) ];\n"
-"  if( (additional & 0x40) != 0 && fbColor.b != 0.0 ){  // index color and shadow? \n"
+"  if( (additional & 0x40) != 0 && fbColor.b >= 0.45 ){  // index color and shadow? \n"
 "    fragColor = vec4(0.0,0.0,0.0,0.5);\n"
 "  }else{ // direct color \n"
 "    discard;\n"
@@ -2575,7 +2847,7 @@ int Ygl_uniformVDP2DrawFramebuffer_addcolor_shadow(void * p, float from, float t
 }
 
 int Ygl_cleanupVDP2DrawFramebuffer_addcolor_shadow(void * p){
-  
+
   return 0;
 }
 
@@ -2703,7 +2975,7 @@ int Ygl_uniformLinecolorInsert(void * p)
   glUniform1i(param->s_line, 1);
   glUniform4fv(param->color_offset, 1, prg->color_offset_val);
   glUniform1f(param->emu_height, (float)_Ygl->rheight / (float)_Ygl->height);
-  //glUniform1f(param->height_ratio, (float)_Ygl->rheight/((float)_Ygl->height * (float)_Ygl->density));  
+  //glUniform1f(param->height_ratio, (float)_Ygl->rheight/((float)_Ygl->height * (float)_Ygl->density));
   glUniform1f(param->vheight, (float)_Ygl->height);
   if (_Ygl->resolution_mode == RES_NATIVE) {
     glUniform1f(param->viewport_offset, (float)_Ygl->originy);
@@ -2722,7 +2994,7 @@ int Ygl_cleanupLinecolorInsert(void * p)
 {
   YglProgram * prg;
   prg = p;
-  
+
   glActiveTexture(GL_TEXTURE1);
   glBindTexture(GL_TEXTURE_2D, 0);
   glActiveTexture(GL_TEXTURE0);
@@ -2759,7 +3031,7 @@ int YglInitShader(int id, const GLchar * vertex[], const GLchar * frag[], int fc
     glGetShaderiv(vshader, GL_COMPILE_STATUS, &compiled);
     if (compiled == GL_FALSE) {
        YGLLOG( "Compile error in vertex shader. %d\n", id );
-       Ygl_printShaderError(vshader);
+       Ygl_printShaderError(id, vshader);
        _prgid[id] = 0;
        return -1;
     }
@@ -2769,7 +3041,7 @@ int YglInitShader(int id, const GLchar * vertex[], const GLchar * frag[], int fc
     glGetShaderiv(fshader, GL_COMPILE_STATUS, &compiled);
     if (compiled == GL_FALSE) {
        YGLLOG( "Compile error in fragment shader.%d \n", id);
-       Ygl_printShaderError(fshader);
+       Ygl_printShaderError(id, fshader);
        _prgid[id] = 0;
        return -1;
      }
@@ -2787,7 +3059,7 @@ int YglInitShader(int id, const GLchar * vertex[], const GLchar * frag[], int fc
     glGetShaderiv(tcsHandle, GL_COMPILE_STATUS, &compiled);
     if (compiled == GL_FALSE) {
       YGLLOG("Compile error in GL_TESS_CONTROL_SHADER shader.\n");
-      Ygl_printShaderError(tcsHandle);
+      Ygl_printShaderError(id,tcsHandle);
       _prgid[id] = 0;
       return -1;
     }
@@ -2803,7 +3075,7 @@ int YglInitShader(int id, const GLchar * vertex[], const GLchar * frag[], int fc
     glGetShaderiv(tesHandle, GL_COMPILE_STATUS, &compiled);
     if (compiled == GL_FALSE) {
       YGLLOG("Compile error in GL_TESS_EVALUATION_SHADER shader.\n");
-      Ygl_printShaderError(tesHandle);
+      Ygl_printShaderError(id,tesHandle);
       _prgid[id] = 0;
       return -1;
     }
@@ -2819,7 +3091,7 @@ int YglInitShader(int id, const GLchar * vertex[], const GLchar * frag[], int fc
     glGetShaderiv(gsHandle, GL_COMPILE_STATUS, &compiled);
     if (compiled == GL_FALSE) {
       YGLLOG("Compile error in GL_TESS_EVALUATION_SHADER shader.\n");
-      Ygl_printShaderError(gsHandle);
+      Ygl_printShaderError(id,gsHandle);
       _prgid[id] = 0;
       return -1;
     }
@@ -2830,7 +3102,7 @@ int YglInitShader(int id, const GLchar * vertex[], const GLchar * frag[], int fc
     glGetProgramiv(_prgid[id], GL_LINK_STATUS, &linked);
     if (linked == GL_FALSE) {
        YGLLOG("Link error..\n");
-       Ygl_printShaderError(_prgid[id]);
+       Ygl_printShaderError(id,_prgid[id]);
        _prgid[id] = 0;
        return -1;
     }
@@ -2894,7 +3166,7 @@ int YglProgramInit()
   id_rbg_cram_line_color_offset = glGetUniformLocation(_prgid[PG_VDP2_RBG_CRAM_LINE], (const GLchar *)"u_color_offset");
   id_rbg_cram_line_blendmode = glGetUniformLocation(_prgid[PG_VDP2_RBG_CRAM_LINE], (const GLchar *)"u_blendmode");
   id_rbg_cram_line_matrix = glGetUniformLocation(_prgid[PG_VDP2_RBG_CRAM_LINE], (const GLchar *)"u_mvpMatrix");
-  
+
 
 
 #if 0
@@ -3025,7 +3297,7 @@ int YglProgramInit()
 
    if (YglInitShader(PG_LINECOLOR_INSERT_DESTALPHA, pYglprg_linecol_v, pYglprg_linecol_dest_alpha_f, 3, NULL, NULL, NULL) != 0)
      return -1;
-   
+
    linecol_destalpha.s_texture = glGetUniformLocation(_prgid[PG_LINECOLOR_INSERT_DESTALPHA], (const GLchar *)"s_texture");
    linecol_destalpha.s_line = glGetUniformLocation(_prgid[PG_LINECOLOR_INSERT_DESTALPHA], (const GLchar *)"s_line");
    linecol_destalpha.color_offset = glGetUniformLocation(_prgid[PG_LINECOLOR_INSERT_DESTALPHA], (const GLchar *)"u_color_offset");
@@ -3077,7 +3349,7 @@ int YglTesserationProgramInit()
     _prgid[PG_VFP1_HALFTRANS_TESS] != 0) {
     return 0;
   }
-    
+
 
   //-----------------------------------------------------------------------------------------------------------
     YGLLOG("PG_VFP1_GOURAUDSAHDING_TESS");
@@ -3089,7 +3361,7 @@ int YglTesserationProgramInit()
         pYglprg_vdp1_gouraudshading_tess_e,
         pYglprg_vdp1_gouraudshading_tess_g) != 0)
         return -1;
-    
+
 
     Ygl_Vdp1CommonGetUniformId(_prgid[PG_VFP1_GOURAUDSAHDING_TESS], &grow_tess);
 
@@ -3228,7 +3500,7 @@ int YglProgramChange( YglLevel * level, int prgid )
      current->cleanupUniform = Ygl_cleanupNormal;
      current->vertexp = 0;
      current->texcoordp = 1;
-     current->mtxModelView = id_normal_matrix; 
+     current->mtxModelView = id_normal_matrix;
      current->color_offset = id_normal_color_offset;
    }
    else if (prgid == PG_VDP2_NORMAL_CRAM)
@@ -3347,7 +3619,7 @@ int YglProgramChange( YglLevel * level, int prgid )
      level->prg[level->prgcurrent].cleanupUniform = Ygl_cleanupVdp1CommonParam;
      level->prg[level->prgcurrent].ids = &id_g;
      current->vertexp = 0;
-     current->texcoordp = 1; 
+     current->texcoordp = 1;
       level->prg[level->prgcurrent].vaid = 2;
       current->mtxModelView = id_g.mtxModelView;
       current->mtxTexture = id_g.mtxTexture;
@@ -3395,7 +3667,7 @@ int YglProgramChange( YglLevel * level, int prgid )
       current->texcoordp       = -1;
       current->mtxModelView    = glGetUniformLocation(_prgid[PG_WINDOW],(const GLchar *)"u_mvpMatrix");
       current->mtxTexture      = -1; //glGetUniformLocation(_prgid[PG_NORMAL],(const GLchar *)"u_texMatrix");
-      
+
    }
    else if( prgid == PG_VFP1_ENDUSERCLIP )
    {
@@ -3639,7 +3911,7 @@ int YglDrawBackScreen(float w, float h) {
     glGetShaderiv(vshader, GL_COMPILE_STATUS, &compiled);
     if (compiled == GL_FALSE) {
       YGLLOG("Compile error in vertex shader.\n");
-      Ygl_printShaderError(vshader);
+      Ygl_printShaderError(0,vshader);
       clear_prg = -1;
       return -1;
     }
@@ -3648,7 +3920,7 @@ int YglDrawBackScreen(float w, float h) {
     glGetShaderiv(fshader, GL_COMPILE_STATUS, &compiled);
     if (compiled == GL_FALSE) {
       YGLLOG("Compile error in fragment shader.\n");
-      Ygl_printShaderError(fshader);
+      Ygl_printShaderError(0, fshader);
       clear_prg = -1;
       return -1;
     }
@@ -3659,7 +3931,7 @@ int YglDrawBackScreen(float w, float h) {
     glGetProgramiv(clear_prg, GL_LINK_STATUS, &linked);
     if (linked == GL_FALSE) {
       YGLLOG("Link error..\n");
-      Ygl_printShaderError(clear_prg);
+      Ygl_printShaderError(0, clear_prg);
       clear_prg = -1;
       return -1;
     }
@@ -3693,7 +3965,7 @@ int YglDrawBackScreen(float w, float h) {
     1.0f, 0.0f,
     0.0f, 0.0f,
     1.0f, 1.0f,
-    0.0f, 1.0f }; 
+    0.0f, 1.0f };
 
   glEnableVertexAttribArray(0);
   glEnableVertexAttribArray(1);
@@ -3762,9 +4034,9 @@ static const char fblit_img[] =
 int YglBlitFramebuffer(u32 srcTexture, u32 targetFbo, float w, float h) {
 
   float aspectRatio = 1.0;
-  float vb[] = { 0, 0, 
-    2.0, 0.0, 
-    2.0, 2.0, 
+  float vb[] = { 0, 0,
+    2.0, 0.0,
+    2.0, 2.0,
     0, 2.0, };
 
   float tb[] = { 0.0, 0.0,
@@ -3796,7 +4068,7 @@ int YglBlitFramebuffer(u32 srcTexture, u32 targetFbo, float w, float h) {
     glGetShaderiv(vshader, GL_COMPILE_STATUS, &compiled);
     if (compiled == GL_FALSE) {
       YGLLOG("Compile error in vertex shader.\n");
-      Ygl_printShaderError(vshader);
+      Ygl_printShaderError(0, vshader);
       blit_prg = -1;
       return -1;
     }
@@ -3805,7 +4077,7 @@ int YglBlitFramebuffer(u32 srcTexture, u32 targetFbo, float w, float h) {
     glGetShaderiv(fshader, GL_COMPILE_STATUS, &compiled);
     if (compiled == GL_FALSE) {
       YGLLOG("Compile error in fragment shader.\n");
-      Ygl_printShaderError(fshader);
+      Ygl_printShaderError(0, fshader);
       blit_prg = -1;
       return -1;
     }
@@ -3816,7 +4088,7 @@ int YglBlitFramebuffer(u32 srcTexture, u32 targetFbo, float w, float h) {
     glGetProgramiv(blit_prg, GL_LINK_STATUS, &linked);
     if (linked == GL_FALSE) {
       YGLLOG("Link error..\n");
-      Ygl_printShaderError(blit_prg);
+      Ygl_printShaderError(0, blit_prg);
       blit_prg = -1;
       return -1;
     }
@@ -3943,7 +4215,7 @@ int YglWindowFramebuffer(u32 srcTexture, u32 targetFbo, float w, float h, float 
     glGetShaderiv(vshader, GL_COMPILE_STATUS, &compiled);
     if (compiled == GL_FALSE) {
       YGLLOG("Compile error in vertex shader.\n");
-      Ygl_printShaderError(vshader);
+      Ygl_printShaderError(0, vshader);
       blit_to_fb_prg = -1;
       return -1;
     }
@@ -3952,7 +4224,7 @@ int YglWindowFramebuffer(u32 srcTexture, u32 targetFbo, float w, float h, float 
     glGetShaderiv(fshader, GL_COMPILE_STATUS, &compiled);
     if (compiled == GL_FALSE) {
       YGLLOG("Compile error in fragment shader.\n");
-      Ygl_printShaderError(fshader);
+      Ygl_printShaderError(0, fshader);
       blit_to_fb_prg = -1;
       return -1;
     }
@@ -3963,7 +4235,7 @@ int YglWindowFramebuffer(u32 srcTexture, u32 targetFbo, float w, float h, float 
     glGetProgramiv(blit_to_fb_prg, GL_LINK_STATUS, &linked);
     if (linked == GL_FALSE) {
       YGLLOG("Link error..\n");
-      Ygl_printShaderError(blit_to_fb_prg);
+      Ygl_printShaderError(0, blit_to_fb_prg);
       blit_to_fb_prg = -1;
       return -1;
     }
@@ -4082,17 +4354,17 @@ int YglBlitFXAA(u32 sourceTexture, float w, float h) {
     glGetShaderiv(vshader, GL_COMPILE_STATUS, &compiled);
     if (compiled == GL_FALSE) {
       YGLLOG("Compile error in vertex shader.\n");
-      Ygl_printShaderError(vshader);
+      Ygl_printShaderError(0, vshader);
       fxaa_prg = -1;
       return -1;
     }
 
-    glShaderSource(fshader, 2, (const GLchar * const*)fxaa_f, NULL);
+    glShaderSource(fshader, 2, fxaa_f, NULL);
     glCompileShader(fshader);
     glGetShaderiv(fshader, GL_COMPILE_STATUS, &compiled);
     if (compiled == GL_FALSE) {
       YGLLOG("Compile error in fragment shader.\n");
-      Ygl_printShaderError(fshader);
+      Ygl_printShaderError(0, fshader);
       fxaa_prg = -1;
       return -1;
     }
@@ -4103,7 +4375,7 @@ int YglBlitFXAA(u32 sourceTexture, float w, float h) {
     glGetProgramiv(fxaa_prg, GL_LINK_STATUS, &linked);
     if (linked == GL_FALSE) {
       YGLLOG("Link error..\n");
-      Ygl_printShaderError(fxaa_prg);
+      Ygl_printShaderError(0, fxaa_prg);
       fxaa_prg = -1;
       return -1;
     }
@@ -4285,7 +4557,7 @@ int YglBlitBlur(u32 srcTexture, u32 targetFbo, float w, float h, float * matrix)
     glGetShaderiv(vshader, GL_COMPILE_STATUS, &compiled);
     if (compiled == GL_FALSE) {
       YGLLOG("Compile error in vertex shader.\n");
-      Ygl_printShaderError(vshader);
+      Ygl_printShaderError(0, vshader);
       blur_prg = -1;
       return -1;
     }
@@ -4295,7 +4567,7 @@ int YglBlitBlur(u32 srcTexture, u32 targetFbo, float w, float h, float * matrix)
     glGetShaderiv(fshader, GL_COMPILE_STATUS, &compiled);
     if (compiled == GL_FALSE) {
       YGLLOG("Compile error in fragment shader.\n");
-      Ygl_printShaderError(fshader);
+      Ygl_printShaderError(0, fshader);
       blur_prg = -1;
       return -1;
     }
@@ -4306,7 +4578,7 @@ int YglBlitBlur(u32 srcTexture, u32 targetFbo, float w, float h, float * matrix)
     glGetProgramiv(blur_prg, GL_LINK_STATUS, &linked);
     if (linked == GL_FALSE) {
       YGLLOG("Link error..\n");
-      Ygl_printShaderError(blur_prg);
+      Ygl_printShaderError(0, blur_prg);
       blur_prg = -1;
       return -1;
     }
@@ -4441,7 +4713,7 @@ int YglBlitMosaic(u32 srcTexture, u32 targetFbo, float w, float h, float * matri
     glGetShaderiv(vshader, GL_COMPILE_STATUS, &compiled);
     if (compiled == GL_FALSE) {
       YGLLOG("Compile error in vertex shader.\n");
-      Ygl_printShaderError(vshader);
+      Ygl_printShaderError(0, vshader);
       mosaic_prg = -1;
       return -1;
     }
@@ -4451,7 +4723,7 @@ int YglBlitMosaic(u32 srcTexture, u32 targetFbo, float w, float h, float * matri
     glGetShaderiv(fshader, GL_COMPILE_STATUS, &compiled);
     if (compiled == GL_FALSE) {
       YGLLOG("Compile error in fragment shader.\n");
-      Ygl_printShaderError(fshader);
+      Ygl_printShaderError(0, fshader);
       mosaic_prg = -1;
       return -1;
     }
@@ -4462,7 +4734,7 @@ int YglBlitMosaic(u32 srcTexture, u32 targetFbo, float w, float h, float * matri
     glGetProgramiv(mosaic_prg, GL_LINK_STATUS, &linked);
     if (linked == GL_FALSE) {
       YGLLOG("Link error..\n");
-      Ygl_printShaderError(mosaic_prg);
+      Ygl_printShaderError(0, mosaic_prg);
       mosaic_prg = -1;
       return -1;
     }
@@ -4617,7 +4889,7 @@ int YglBlitPerLineAlpha(u32 srcTexture, u32 targetFbo, float w, float h, float *
     glGetShaderiv(vshader, GL_COMPILE_STATUS, &compiled);
     if (compiled == GL_FALSE) {
       YGLLOG("Compile error in vertex shader.\n");
-      Ygl_printShaderError(vshader);
+      Ygl_printShaderError(0, vshader);
       perlinealpha_prg = -1;
       return -1;
     }
@@ -4627,7 +4899,7 @@ int YglBlitPerLineAlpha(u32 srcTexture, u32 targetFbo, float w, float h, float *
     glGetShaderiv(fshader, GL_COMPILE_STATUS, &compiled);
     if (compiled == GL_FALSE) {
       YGLLOG("Compile error in fragment shader.\n");
-      Ygl_printShaderError(fshader);
+      Ygl_printShaderError(0, fshader);
       perlinealpha_prg = -1;
       return -1;
     }
@@ -4638,7 +4910,7 @@ int YglBlitPerLineAlpha(u32 srcTexture, u32 targetFbo, float w, float h, float *
     glGetProgramiv(perlinealpha_prg, GL_LINK_STATUS, &linked);
     if (linked == GL_FALSE) {
       YGLLOG("Link error..\n");
-      Ygl_printShaderError(perlinealpha_prg);
+      Ygl_printShaderError(0, perlinealpha_prg);
       perlinealpha_prg = -1;
       return -1;
     }
@@ -4777,7 +5049,7 @@ int YglBlitScanlineFilter(u32 sourceTexture, u32 draw_res_v, u32 staturn_res_v) 
     glGetShaderiv(vshader, GL_COMPILE_STATUS, &compiled);
     if (compiled == GL_FALSE) {
       printf("Compile error in vertex shader.\n");
-      Ygl_printShaderError(vshader);
+      Ygl_printShaderError(0, vshader);
       scanline_prg = -1;
       return -1;
     }
@@ -4787,7 +5059,7 @@ int YglBlitScanlineFilter(u32 sourceTexture, u32 draw_res_v, u32 staturn_res_v) 
     glGetShaderiv(fshader, GL_COMPILE_STATUS, &compiled);
     if (compiled == GL_FALSE) {
       printf("Compile error in fragment shader.\n");
-      Ygl_printShaderError(fshader);
+      Ygl_printShaderError(0, fshader);
       scanline_prg = -1;
       return -1;
     }
@@ -4798,7 +5070,7 @@ int YglBlitScanlineFilter(u32 sourceTexture, u32 draw_res_v, u32 staturn_res_v) 
     glGetProgramiv(scanline_prg, GL_LINK_STATUS, &linked);
     if (linked == GL_FALSE) {
       printf("Link error..\n");
-      Ygl_printShaderError(scanline_prg);
+      Ygl_printShaderError(0, scanline_prg);
       scanline_prg = -1;
       return -1;
     }
@@ -4862,6 +5134,7 @@ int YglBlitScanlineFilter(u32 sourceTexture, u32 draw_res_v, u32 staturn_res_v) 
 
   return 0;
 }
+
 
 void YglProgramDeInit(void)
 {

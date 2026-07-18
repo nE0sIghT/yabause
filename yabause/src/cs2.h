@@ -266,6 +266,8 @@ extern "C" {
     int _command_execlock;
     int _delay_irq;
 
+    u8 nextStatus;
+
   } Cs2;
 
   typedef struct {
@@ -412,6 +414,7 @@ extern "C" {
   u32 Cs2GetSlaveStackAdress(void);
   u64 Cs2GetGameId();
   char * Cs2GetCurrentGmaecode();
+  char * Cs2GetCurrentGameName();
 
   // external CD drive command
   void Cs2ForceOpenTray();

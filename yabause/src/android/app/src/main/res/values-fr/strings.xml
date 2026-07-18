@@ -48,6 +48,16 @@
     <string name="donate_30doller">$30</string>
 
     <string name="input_the_key">Pressez une Touche</string>
+
+    <!-- LeaderBoard strings -->
+    <string name="leaderboard_title">Classement</string>
+    <string name="leaderboard_position">Pos.</string>
+    <string name="leaderboard_name">Nom</string>
+    <string name="leaderboard_time">Temps</string>
+    <string name="leaderboard_diff">Diff</string>
+    <string name="leaderboard_no_data">Ce jeu n\'a pas encore de classement</string>
+    <string name="leaderboard_not_supported">Ce jeu ne prend pas encore en charge le classement</string>
+    <string name="menu_leaderboard">Classement</string>
     <string name="joystick_is_not_connected">Le joystick n\'est pas connecté.</string>
     <string name="this_key_has_already_been_set">Cette touche a déjà été utilisée.</string>
     <string name="up">Haut</string>
@@ -57,7 +67,7 @@
     <string name="axis_x">X Analogique</string>
     <string name="axis_y">Y Analogique</string>
     <string name="axis_l">L (Gauche) Analogique </string>
-    <string name="axis_r">R (Droite] Analogique</string>
+    <string name="axis_r">R (Droite) Analogique</string>
     <string name="l_trigger">Gâchette L (Gauche)</string>
     <string name="r_trigger">Gâchette R (Droite)</string>
     <string name="start">Start</string>
@@ -80,7 +90,7 @@
     <string name="dynrec_cpu_interface">Recompileur Dynamique ( rapide mais moins précis )</string>
     <string name="software_cpu_interface">Interprèteur ( lent mais plus précis )</string>
 
-    <string name="opengl_video_interface">Interface Vidéo OpenGL</string>
+    <string name="opengl_video_interface">OpenGL</string>
     <string name="software_video_interface">Interface Vidéo Logiciel</string>
     <string name="onscreen_pad">Contrôles Tactiles</string>
     <string name="select_from_other_directory">Choisir depuis un autre répertoire.</string>
@@ -119,6 +129,21 @@
     <string name="refresh_db">Rafraîchir la Liste de Jeu</string>
     <string name="select_bk_image">Sélectionner une Image en Arrière Plan</string>
 
+    <string name="report_sent_success">Merci pour votre rapport!</string>
+    <string name="report_sent_failed">Échec de l\'envoi du rapport</string>
+
+    <string name="report_message_1">Ne démarre pas</string>
+    <string name="report_message_2">Intro/Menu</string>
+    <string name="report_message_3">Jouable</string>
+    <string name="report_message_4">Très bien</string>
+    <string name="report_message_5">Parfait</string>
+
+    <string name="game_report_message_1">Terrible</string>
+    <string name="game_report_message_2">Mauvais</string>
+    <string name="game_report_message_3">Moyen</string>
+    <string name="game_report_message_4">Bon</string>
+    <string name="game_report_message_5">Excellent</string>
+
     <!-- Error messages -->
     <string name="video_error_media_load_timeout">Expiration du Chargement du Média</string>
     <string name="video_error_server_inaccessible">Le Serveur de Média n\'a pas pu être atteint</string>
@@ -140,7 +165,7 @@
     <string name="open_cd_tray">Ouvrir le Plateau du CD</string>
     <string name="close_cd_tray">Fermer le Plateau du CD</string>
     <string name="menu_analog">Activer les Contrôles Analogiques</string>
-    <string name="menu_cheat">Cheat</string>
+    <string name="menu_acp">Action Replay Code</string>
     <string name="add_new_code">Ajouter un Nouveau Code</string>
 
     <string name="enable">Activer</string>
@@ -172,25 +197,166 @@
     <string name="already_have_been">Si vous avez déjà fait un don, veuillez contacter smiyaxdev@gmail.com</string>
     <string name="close">Close</string>
 
+    <!-- Discord Integration Strings -->
+    <string name="discord_logo">Logo Discord</string>
+    <string name="link_discord_account">Lier un compte Discord</string>
+    <string name="discord_link_prompt_title">Lier votre compte Discord</string>
+    <string name="discord_link_prompt_message">Souhaitez-vous lier votre compte Discord ? Cela mettra à jour votre profil avec votre nom d\'utilisateur et votre avatar Discord.</string>
+    <string name="discord_account_linked">Compte Discord lié avec succès !</string>
+    <string name="discord_account_link_failed">Échec de la liaison du compte Discord</string>
+    <string name="discord_link_error">Erreur de liaison Discord</string>
+    <string name="discord_link_cancelled">Liaison Discord annulée</string>
+    <string name="discord_already_linked">Compte Discord déjà lié</string>
+    <string name="discord_unlink_account">Délier le compte Discord</string>
+    <string name="discord_unlink_confirm">Êtes-vous sûr de vouloir délier votre compte Discord ?</string>
+    <string name="discord_account_unlinked">Compte Discord délié</string>
+    <string name="discord_link_title">Lier votre compte Discord</string>
+    <string name="discord_link_description">Liez votre compte Discord pour utiliser votre nom d\'utilisateur et votre avatar Discord dans cette application.</string>
+    <string name="skip_for_now">Ignorer pour l\'instant</string>
+    <string name="menu_link_discord">Lier un compte Discord</string>
+    <string name="first_login_discord_prompt">Souhaitez-vous lier votre compte Discord ?</string>
+    <string name="discord_link_prompt_yes">Oui, lier le compte</string>
+    <string name="discord_link_prompt_no">Non, merci</string>
+    <string name="discord_oauth_redirect_title">Authentification Discord</string>
+    <string name="discord_oauth_processing">Traitement de la liaison du compte Discord...</string>
+    <string name="account_category">Compte</string>
+    <string name="summary_for_discord_login">Synchronisez votre nom d\'utilisateur et votre avatar avec ceux de Discord.</string>
+    <string name="summary_for_login_to_other">Vous pouvez vous connecter à la version Windows de Yaba Ssanshiro avec le code PIN affiché.</string>
+
     <string name="welcome">
         <![CDATA[
         # Bienvenue! \n\n
 
-         Pour jouer aux jeux SEGA Saturn, suivez ces instructions. \n\n
+         Pour jouer aux jeux SEGA Saturn, suivez ces instructions. \n\n
 
-         1. Générez un fichier image à partir de votre CD-ROM de jeu en utilisant DiscImageChef ou quelque chose. Des outils utiles sont répertoriés [ici] (http://wiki.redump.org/index.php?title=Useful_Links).\n
-         2. Copiez les fichiers image dans le répertoire **\"%1$s\"** dans la mémoire interne du téléphone intelligent.\n
-         3. Affichez le menu du tiroir et appuyez sur \"Rafraîchir la Liste de Jeu\". La liste des jeux s\'affiche alors.\n
-         4. Appuyez sur le titre du jeu auquel vous souhaitez jouer. \n
-         5. Profitez-en! \n
-         \n
-         Pour plus de détails, consultez notre [site Web] (https://www.uoyabause.org/static_pages/guide).
+         1. Générez un fichier image à partir de votre CD-ROM de jeu en utilisant DiscImageChef ou quelque chose. Des outils utiles sont répertoriés [ici] (http://wiki.redump.org/index.php?title=Useful_Links).\n
+         2. Copiez les fichiers image dans le répertoire **\"%1$s\"** dans la mémoire interne du téléphone intelligent.\n
+         3. Affichez le menu du tiroir et appuyez sur \"Rafraîchir la Liste de Jeu\". La liste des jeux s\'affiche alors.\n
+         4. Appuyez sur le titre du jeu auquel vous souhaitez jouer. \n
+         5. Profitez-en! \n
+         \n
+         Pour plus de détails, consultez notre this [Youtube video](https://www.youtube.com/watch?v=Ch6_KhhAg10).
         ]]>
     </string>
+
+    <string name="welcome_11">
+        <![CDATA[
+        # Bienvenue! \n\n
+
+        Pour jouer aux jeux SEGA Saturn, vous avez quatre options.\n\n
+
+        ## 1. Copiez les jeux directement sur cet appareil Android.\n
+
+        copiez vos images ISO dans **\"%1$s\"**.\n
+
+        ## 2. Copiez sur une carte SD externe.\n
+
+        copiez vos images ISO dans **\"%2$s\"** sur une carte SD.\n
+
+        ## 3. Appuyez sur le bouton +\n
+
+        Si vous avez déjà des fichiers d\'images iso CHD ou zippés. Appuyez simplement sur le bouton + et sélectionnez le fichier. \n\n
+
+        ## 4. Sélectionnez un répertoire contenant des images ISO\n
+
+        [Configuration] -> [Choisir un Répertoire de Jeu] -> [ADD] \n\n
+
+        Plus de détails sont décrits sur notre [site Web](https://www.yabasanshiro.com/howto#android).\n
+        ]]>
+    </string>
+
+
+
 
     <string name="delete_confirm_title">SUPPRIMER CONFIRMER</string>
     <string name="not_available">INDISPONIBLE!</string>
     <string name="only_pro_version">Cette fonction n\'est disponible que pour la version pro</string>
     <string name="got_it">Je l\'ai!</string>
 
+    <string name="siginin_message">
+        La connexion permet de sauvegarder les données de sauvegarde et les données d\'état dans le cloud et de les partager entre les appareils.\n Cependant, ces fonctions sont expérimentales, elles ne fonctionnent donc pas comme prévu, les spécifications peuvent être modifiées ou supprimées sans préavis. Même si vous ne vous connectez pas, des bibliothèques telles que Firebase collectent les informations pour améliorer votre application. Une politique de confidentialité détaillée est disponible sur https://www.yabasanshiro.com/privacy.
+    </string>
+    <string name="pro_version_available">La version Pro est disponible!\n\n * Aucune restriction sur laj\'out de jeux\n * Enregistrer / charger l\'état du jeu entre les appareils\n * Aucune publicité\n\n</string>
+    <string name="remaining_installation_count">Remaining installation count</string>
+    <string name="remaining_installation_count_is">Le nombre d\'installations restantes est de</string>
+    <string name="do_you_want_to_install">Voulez-vous installer?</string>
+    <string name="which_storage">Quel stockage?</string>
+    <string name="or_place_file_to">Ou placez le jeu dans \"%1$s\" manuellement.</string>
+    <string name="agreement">
+    En appuyant sur le bouton DÉMARRER, vous acceptez le contrat <a href="https://www.yabasanshiro.com/terms-of-use">de licence utilisateur final</a>.
+    Remarque : <a href="https://www.yabasanshiro.com/privacy">La politique de confidentialité</a> décrit la manière dont les données sont traitées. YabaSanshiro envoie des données de diagnostic à devMiyax et à des services tiers pour aider à améliorer l\'application.
+    </string>
+
+    <string name="restore_defaults">
+        réinitialiser
+    </string>
+    <string name="last_play_game">"Dernier jeu joué : "</string>
+    <string name="device">Dispositif:</string>
+    <string name="auto_backup_memory_sync">Synchronisation automatique de sauvegarde</string>
+    <string name="auto_backup_sync">Synchronisation automatique de sauvegarde</string>
+    <string name="msg_fail_to_upload_backup_data_to_cloud">Echec de téléchargement des données de sauvegarde sur le cloud</string>
+    <string name="msg_fail_to_unzip_backup_data_from_cloud">Échec de décompression des données de sauvegarde en provenance du cloud</string>
+    <string name="msg_success_to_download_backup_data_from_cloud">Le téléchargement de données de sauvegarde à partir du cloud a réussi</string>
+    <string name="msg_fail_to_download_backup_data_from_cloud">Impossible de télécharger les données de sauvegarde du cloud.</string>
+    <string name="msg_fail_to_zip_backup_data">Impossible de compresser les données de sauvegarde</string>
+    <string name="msg_success_to_upload_backup_data_to_cloud">Le téléchargement des données de sauvegarde vers le cloud a réussi.</string>
+
+    <string name="perf_use_cpu_affinity_detail">Dans le cas d\'un processeur multicœur asymétrique, les cœurs à plus haute fréquence sont utilisés de manière préférentielle. Cependant, selon l\'appareil, les performances peuvent diminuer en sens inverse.</string>
+    <string name="pref_use_sh2_cache_detail">L\'activation de l\'émulation du traitement du cache SH2 améliore la compatibilité. Cependant, cela se fait au détriment de la vitesse d\'émulation.</string>
+    <string name="pref_auto_state_save_title">Activer la sauvegarde automatique de l\'état</string>
+    <string name="pref_auto_state_save_detail">Sauvegarde automatiquement l\'état à la sortie. La prochaine fois qu\'il démarre, il peut reprendre à partir du point enregistré. Cependant, il peut y avoir des cas où la reproduction n\'est pas réussie.</string>
+
+    <string name="auto_state_save_data_found">Données de sauvegarde automatique trouvées !</string>
+    <string name="auto_state_detail">Voulez-vous charger l\'état ? Malheureusement, cela peut ne pas être très fiable. Si cela ne fonctionne pas correctement, veuillez appuyer sur Annuler.</string>
+
+    <string name="force_feedback">Retour de force</string>
+    <string name="visual_feedback">Retour visuel</string>
+    <string name="show_analog_dpad_switch_button">Afficher le bouton de basculement Analogique/Dpad</string>
+
+    <string name="file_not_found">Fichier introuvable : %1$s</string>
+    <string name="i_o_error_occurred">Erreur I/O : %1$s</string>
+    <string name="read_permission_denied">Permission de lecture refusée : %1$s</string>
+    <string name="other_file_error">Autre erreur de fichier : %1$s</string>
+    <string name="no_game_file_is_selected">Aucun fichier de jeu sélectionné</string>
+    <string name="fail_to_open_with">Échec de l\'ouverture de %1$s avec %2$s</string>
+    <string name="fail_to_open">Échec de l\'ouverture de %1$s</string>
+
+    <string name="failed_to_initialize">Échec de l\'initialisation</string>
+    <string name="fail_to_get_game_code_this_file_is_not_sega_saturn_game">Échec de la récupération du code du jeu. Ce fichier n\'est pas un jeu SEGA Saturn.</string>
+    <string name="fail_to_initialize_emulator">Échec de l\'initialisation de l\'émulateur</string>
+    <string name="notification_permission_title">Demande de permission de notification</string>
+    <string name="notification_permission_message">En autorisant les notifications, vous recevrez des nouvelles du développeur.</string>
+
+    <string name="delete_account">Supprimer le compte</string>
+    <string name="delete_account_summary">Supprimer votre compte et toutes les données associées</string>
+    <string name="delete_account_confirmation_title">Supprimer le compte</string>
+    <string name="delete_account_confirmation_message">Êtes-vous sûr de vouloir supprimer votre compte ? Cela supprimera définitivement votre compte et toutes les données associées. Cette action est irréversible.</string>
+    <string name="account_deleted">Compte supprimé avec succès</string>
+    <string name="account_deletion_failed">Échec de la suppression du compte</string>
+    <string name="discord_link_not_available_on_tv">Cette fonctionnalité n\'est pas disponible sur Android TV. Veuillez utiliser votre téléphone ou votre tablette.</string>
+
+    <!-- Cloud Game Backup -->
+    <string name="backup_to_cloud">Sauvegarder dans le Cloud</string>
+    <string name="remove_from_cloud">Supprimer du Cloud</string>
+    <string name="restore_from_cloud">Restaurer depuis le Cloud</string>
+    <string name="backup_success">Jeu sauvegardé avec succès</string>
+    <string name="backup_failed">Échec de la sauvegarde du jeu</string>
+    <string name="restore_success">Jeu restauré avec succès</string>
+    <string name="restore_failed">Échec de la restauration du jeu</string>
+    <string name="backup_limit_reached">Limite de sauvegarde atteinte (maximum 1 jeu)</string>
+    <string name="legal_warning_title">Avis Légal</string>
+    <string name="cloud_only_game">Disponible dans le cloud (appuyez pour télécharger)</string>
+    <string name="download_from_cloud">Télécharger depuis le Cloud</string>
+    <string name="remove_success">Jeu supprimé du cloud avec succès</string>
+    <string name="remove_failed">Échec de la suppression du jeu du cloud</string>
+    <string name="legal_warning_message">Ce fichier ne doit être utilisé que comme sauvegarde d\'un jeu que vous possédez. Veuillez respecter les lois de votre pays concernant les sauvegardes de jeux.</string>
+
+    <!-- Backup Replacement Dialog -->
+    <string name="backup_limit_dialog_title">Limite de Sauvegarde Atteinte</string>
+    <string name="backup_limit_dialog_message">Vous avez atteint le nombre maximum de jeux que vous pouvez sauvegarder. Sélectionnez un jeu à remplacer :</string>
+    <string name="replace">Remplacer</string>
+    <string name="backup_date">Sauvegardé le %1$s</string>
+    <string name="no_game_selected">Veuillez sélectionner un jeu à remplacer</string>
+    <string name="replace_backup_success">Sauvegarde remplacée avec succès</string>
+    <string name="replace_backup_failed">Échec du remplacement de la sauvegarde</string>
 </resources>

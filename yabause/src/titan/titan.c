@@ -207,7 +207,7 @@ void TitanRenderSimplifiedCheck(pixel_t * buf, int start, int end, int can_use_s
 }
 
 #define DECLARE_PRIORITY_THREAD(FUNC_NAME, THREAD_NUMBER) \
-void FUNC_NAME(void* data) \
+void * FUNC_NAME(void* data) \
 { \
    for (;;) \
    { \
@@ -218,7 +218,7 @@ void FUNC_NAME(void* data) \
          priority_thread_context.draw_finished[THREAD_NUMBER] = 1; \
       } \
       YabThreadSleep(); \
-   } \
+   } return NULL; \
 }
 
 DECLARE_PRIORITY_THREAD(VidsoftPriorityThread0, 0);
@@ -402,11 +402,11 @@ int TitanInit()
          priority_thread_context.need_draw[i] = 0;
       }
 
-      YabThreadStart(YAB_THREAD_VIDSOFT_PRIORITY_0, (void * (*)(void *))VidsoftPriorityThread0, NULL);
-      YabThreadStart(YAB_THREAD_VIDSOFT_PRIORITY_1, (void * (*)(void *))VidsoftPriorityThread1, NULL);
-      YabThreadStart(YAB_THREAD_VIDSOFT_PRIORITY_2, (void * (*)(void *))VidsoftPriorityThread2, NULL);
-      YabThreadStart(YAB_THREAD_VIDSOFT_PRIORITY_3, (void * (*)(void *))VidsoftPriorityThread3, NULL);
-      YabThreadStart(YAB_THREAD_VIDSOFT_PRIORITY_4, (void * (*)(void *))VidsoftPriorityThread4, NULL);
+      YabThreadStart(YAB_THREAD_VIDSOFT_PRIORITY_0, "YAB_THREAD_VIDSOFT_PRIORITY_0", VidsoftPriorityThread0, NULL);
+      YabThreadStart(YAB_THREAD_VIDSOFT_PRIORITY_1, "YAB_THREAD_VIDSOFT_PRIORITY_1", VidsoftPriorityThread1, NULL);
+      YabThreadStart(YAB_THREAD_VIDSOFT_PRIORITY_2, "YAB_THREAD_VIDSOFT_PRIORITY_2", VidsoftPriorityThread2, NULL);
+      YabThreadStart(YAB_THREAD_VIDSOFT_PRIORITY_3, "YAB_THREAD_VIDSOFT_PRIORITY_3", VidsoftPriorityThread3, NULL);
+      YabThreadStart(YAB_THREAD_VIDSOFT_PRIORITY_4, "YAB_THREAD_VIDSOFT_PRIORITY_4", VidsoftPriorityThread4, NULL);
 
       tt_context.inited = 1;
    }

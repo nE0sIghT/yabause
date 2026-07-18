@@ -27,6 +27,9 @@
 
 #include "QtYabause.h"
 
+struct GLFWmonitor;
+class Renderer;
+
 class YabauseThread : public QObject
 {
 	Q_OBJECT
@@ -47,6 +50,13 @@ public:
     return instance;
   }
 
+  bool IsFullscreen(void);
+  void SetFullScreen(bool fullscreen);
+	void execEmulation();
+
+	void resize(int w, int h);
+
+
 protected:
   static YabauseThread * instance;
 	yabauseinit_struct mYabauseConf;
@@ -61,9 +71,13 @@ protected:
 	void resetYabauseConf();
 	void timerEvent( QTimerEvent* );
 
+  Renderer * vulkanRenderer;
+  GLFWmonitor * _monitor;
+  int _wndPos[2];
+  int _wndSize[2];
 
 public slots:
-	bool pauseEmulation( bool pause, bool reset );
+	bool pauseEmulation( bool pause, bool reset, std::function<void()> preInitcallback = nullptr);
 	bool resetEmulation();
 	void reloadControllers();
 	void reloadClock();

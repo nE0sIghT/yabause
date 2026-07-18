@@ -54,8 +54,8 @@ const int tweak_backup_file_size = 1024 * 1024 * 8;
 
 static u8 sh2masklist[0x20] = {
 0xF0, 0xE0, 0xD0, 0xC0, 0xB0, 0xA0, 0x90, 0x80,
-0x80, 0x70, 0x70, 0x70, 0x70, 0x70, 0x70, 0x70, 
-0x70, 0x70, 0x70, 0x70, 0x70, 0x70, 0x70, 0x70, 
+0x80, 0x70, 0x70, 0x70, 0x70, 0x70, 0x70, 0x70,
+0x70, 0x70, 0x70, 0x70, 0x70, 0x70, 0x70, 0x70,
 0x70, 0x70, 0x70, 0x70, 0x70, 0x70, 0x70, 0x70
 };
 
@@ -73,40 +73,52 @@ static u32 scumasklist[0x20] = {
 u32 interruptlist[2][0x80];
 
 static void FASTCALL BiosBUPRead(SH2_struct * sh);
+
+
+typedef void(*ON_BACKUP_WRITE_CALLBACK)(const char * fname, char * before, char * after, int size);
+
+static ON_BACKUP_WRITE_CALLBACK Bios_onBackupWrite = NULL;
+
+void BiosSetOnBackupWrite( ON_BACKUP_WRITE_CALLBACK cbk ) {
+  Bios_onBackupWrite = cbk;
+}
+
+
 //////////////////////////////////////////////////////////////////////////////
 
 void BiosInit(void)
 {
    int i;
+   u32 cycle = 0;
 
    // Setup vectors
-   MappedMemoryWriteLongNocache(0x06000600, 0x002B0009); // rte, nop
-   MappedMemoryWriteLongNocache(0x06000604, 0xE0F0600C); // mov #0xF0, r0; extu.b r0, r0
-   MappedMemoryWriteLongNocache(0x06000608, 0x400E8BFE); // ldc r0, sr; bf
-   MappedMemoryWriteLongNocache(0x0600060C, 0x00090009); // nop
-   MappedMemoryWriteLongNocache(0x06000610, 0x000B0009); // rts, nop
+   MappedMemoryWriteLong(0x06000600, 0x002B0009,&cycle); // rte, nop
+   MappedMemoryWriteLong(0x06000604, 0xE0F0600C,&cycle); // mov #0xF0, r0; extu.b r0, r0
+   MappedMemoryWriteLong(0x06000608, 0x400E8BFE,&cycle); // ldc r0, sr; bf
+   MappedMemoryWriteLong(0x0600060C, 0x00090009,&cycle); // nop
+   MappedMemoryWriteLong(0x06000610, 0x000B0009,&cycle); // rts, nop
 
    for (i = 0; i < 0x200; i+=4)
    {
-      MappedMemoryWriteLongNocache(0x06000000+i, 0x06000600);
-      MappedMemoryWriteLongNocache(0x06000400+i, 0x06000600);
+      MappedMemoryWriteLong(0x06000000+i, 0x06000600,&cycle);
+      MappedMemoryWriteLong(0x06000400+i, 0x06000600,&cycle);
       interruptlist[0][i >> 2] = 0x06000600;
       interruptlist[1][i >> 2] = 0x06000600;
    }
 
-   MappedMemoryWriteLongNocache(0x06000010, 0x06000604);
-   MappedMemoryWriteLongNocache(0x06000018, 0x06000604);
-   MappedMemoryWriteLongNocache(0x06000024, 0x06000604);
-   MappedMemoryWriteLongNocache(0x06000028, 0x06000604);
+   MappedMemoryWriteLong(0x06000010, 0x06000604,&cycle);
+   MappedMemoryWriteLong(0x06000018, 0x06000604,&cycle);
+   MappedMemoryWriteLong(0x06000024, 0x06000604,&cycle);
+   MappedMemoryWriteLong(0x06000028, 0x06000604,&cycle);
    interruptlist[0][4] = 0x06000604;
    interruptlist[0][6] = 0x06000604;
    interruptlist[0][9] = 0x06000604;
    interruptlist[0][10] = 0x06000604;
 
-   MappedMemoryWriteLongNocache(0x06000410, 0x06000604);
-   MappedMemoryWriteLongNocache(0x06000418, 0x06000604);
-   MappedMemoryWriteLongNocache(0x06000424, 0x06000604);
-   MappedMemoryWriteLongNocache(0x06000428, 0x06000604);
+   MappedMemoryWriteLong(0x06000410, 0x06000604,&cycle);
+   MappedMemoryWriteLong(0x06000418, 0x06000604,&cycle);
+   MappedMemoryWriteLong(0x06000424, 0x06000604,&cycle);
+   MappedMemoryWriteLong(0x06000428, 0x06000604,&cycle);
    interruptlist[1][4] = 0x06000604;
    interruptlist[1][6] = 0x06000604;
    interruptlist[1][9] = 0x06000604;
@@ -115,57 +127,69 @@ void BiosInit(void)
    // Scu Interrupts
    for (i = 0; i < 0x38; i+=4)
    {
-      MappedMemoryWriteLongNocache(0x06000100+i, 0x00000400+i);
+      MappedMemoryWriteLong(0x06000100+i, 0x00000400+i,&cycle);
       interruptlist[0][0x40+(i >> 2)] = 0x00000400+i;
    }
 
    for (i = 0; i < 0x40; i+=4)
    {
-      MappedMemoryWriteLongNocache(0x06000140+i, 0x00000440+i);
+      MappedMemoryWriteLong(0x06000140+i, 0x00000440+i,&cycle);
       interruptlist[0][0x50+(i >> 2)] = 0x00000440+i;
    }
 
    for (i = 0; i < 0x100; i+=4)
-      MappedMemoryWriteLongNocache(0x06000A00+i, 0x06000610);
+      MappedMemoryWriteLong(0x06000A00+i, 0x06000610,&cycle);
 
    // Setup Bios Functions
-   MappedMemoryWriteLongNocache(0x06000210, 0x00000210);
-   MappedMemoryWriteLongNocache(0x0600026C, 0x0000026C);
-   MappedMemoryWriteLongNocache(0x06000274, 0x00000274);
-   MappedMemoryWriteLongNocache(0x06000280, 0x00000280);
-   MappedMemoryWriteLongNocache(0x0600029C, 0x0000029C);
-   MappedMemoryWriteLongNocache(0x060002DC, 0x000002DC);
-   MappedMemoryWriteLongNocache(0x06000300, 0x00000300);
-   MappedMemoryWriteLongNocache(0x06000304, 0x00000304);
-   MappedMemoryWriteLongNocache(0x06000310, 0x00000310);
-   MappedMemoryWriteLongNocache(0x06000314, 0x00000314);
-   MappedMemoryWriteLongNocache(0x06000320, 0x00000320);
-   MappedMemoryWriteLongNocache(0x06000324, 0x00000000);
-   MappedMemoryWriteLongNocache(0x06000330, 0x00000330);
-   MappedMemoryWriteLongNocache(0x06000334, 0x00000334);
-   MappedMemoryWriteLongNocache(0x06000340, 0x00000340);
-   MappedMemoryWriteLongNocache(0x06000344, 0x00000344);
-   MappedMemoryWriteLongNocache(0x06000348, 0xFFFFFFFF);
-   MappedMemoryWriteLongNocache(0x06000354, 0x00000000);
-   MappedMemoryWriteLongNocache(0x06000358, 0x00000358);
+   MappedMemoryWriteLong(0x06000210, 0x00000210,&cycle);
+   MappedMemoryWriteLong(0x06000260, 0x06000D00,&cycle);
+   MappedMemoryWriteLong(0x0600026C, 0x0000026C,&cycle);
+   MappedMemoryWriteLong(0x06000274, 0x00000274,&cycle);
+   MappedMemoryWriteLong(0x06000280, 0x00000280,&cycle);
+   MappedMemoryWriteLong(0x0600029C, 0x0000029C,&cycle);
+   MappedMemoryWriteLong(0x060002DC, 0x000002DC,&cycle);
+   MappedMemoryWriteLong(0x06000300, 0x00000300,&cycle);
+   MappedMemoryWriteLong(0x06000304, 0x00000304,&cycle);
+   MappedMemoryWriteLong(0x06000310, 0x00000310,&cycle);
+   MappedMemoryWriteLong(0x06000314, 0x00000314,&cycle);
+   MappedMemoryWriteLong(0x06000320, 0x00000320,&cycle);
+   MappedMemoryWriteLong(0x06000324, 0x00000000,&cycle);
+   MappedMemoryWriteLong(0x06000330, 0x00000330,&cycle);
+   MappedMemoryWriteLong(0x06000334, 0x00000334,&cycle);
+   MappedMemoryWriteLong(0x06000340, 0x00000340,&cycle);
+   MappedMemoryWriteLong(0x06000344, 0x00000344,&cycle);
+   MappedMemoryWriteLong(0x06000348, 0xFFFFFFFF,&cycle);
+   MappedMemoryWriteLong(0x06000354, 0x00000000,&cycle);
+   MappedMemoryWriteLong(0x06000358, 0x00000358,&cycle);
+
+
+   // Default Slave CPU proc
+   MappedMemoryWriteLong(0x06000250, 0x06000646, &cycle);
+   MappedMemoryWriteLong(0x06000640, 0x400e472b, &cycle);
+   MappedMemoryWriteLong(0x06000644, 0x277aaffe, &cycle);
+   MappedMemoryWriteLong(0x06000648, 0x00090009, &cycle);
+   MappedMemoryWriteLong(0x0600064c, 0x06000400, &cycle);
+
+
 }
 
 //////////////////////////////////////////////////////////////////////////////
 
 static void FASTCALL BiosSetScuInterrupt(SH2_struct * sh)
 {
+   u32 cycle=0;
    SH2GetRegisters(sh, &sh->regs);
 
    LOG("BiosSetScuInterrupt. vector = %02X, func = %08X\n", sh->regs.R[4], sh->regs.R[5]);
 
    if (sh->regs.R[5] == 0)
    {
-      MappedMemoryWriteLongNocache(0x06000900+(sh->regs.R[4] << 2), 0x06000610);      
+      MappedMemoryWriteLong(0x06000900+(sh->regs.R[4] << 2), 0x06000610,&cycle);
       sh->cycles += 8;
    }
    else
    {
-      MappedMemoryWriteLongNocache(0x06000900+(sh->regs.R[4] << 2), sh->regs.R[5]);
+      MappedMemoryWriteLong(0x06000900+(sh->regs.R[4] << 2), sh->regs.R[5],&cycle);
       sh->cycles += 9;
    }
 
@@ -177,12 +201,13 @@ static void FASTCALL BiosSetScuInterrupt(SH2_struct * sh)
 
 static void FASTCALL BiosGetScuInterrupt(SH2_struct * sh)
 {
+   u32 cycle=0;
    SH2GetRegisters(sh, &sh->regs);
 
    // check me
-   LOG("BiosGetScuInterrupt\n"); 
+   LOG("BiosGetScuInterrupt\n");
 
-   sh->regs.R[0] = MappedMemoryReadLongNocache(0x06000900+(sh->regs.R[4] << 2));
+   sh->regs.R[0] = MappedMemoryReadLong(0x06000900+(sh->regs.R[4] << 2),&cycle);
    sh->cycles += 5;
 
    sh->regs.PC = sh->regs.PR;
@@ -193,18 +218,19 @@ static void FASTCALL BiosGetScuInterrupt(SH2_struct * sh)
 
 static void FASTCALL BiosSetSh2Interrupt(SH2_struct * sh)
 {
+   u32 cycle = 0;
    SH2GetRegisters(sh, &sh->regs);
 
    LOG("BiosSetSh2Interrupt\n");
 
    if (sh->regs.R[5] == 0)
-   {            
-      MappedMemoryWriteLongNocache(sh->regs.VBR+(sh->regs.R[4] << 2), interruptlist[sh->isslave][sh->regs.R[4]]);
+   {
+      MappedMemoryWriteLong(sh->regs.VBR+(sh->regs.R[4] << 2), interruptlist[sh->isslave][sh->regs.R[4]],&cycle);
       sh->cycles += 8;
    }
    else
    {
-      MappedMemoryWriteLongNocache(sh->regs.VBR+(sh->regs.R[4] << 2), sh->regs.R[5]);
+      MappedMemoryWriteLong(sh->regs.VBR+(sh->regs.R[4] << 2), sh->regs.R[5],&cycle);
       sh->cycles += 9;
    }
 
@@ -216,12 +242,13 @@ static void FASTCALL BiosSetSh2Interrupt(SH2_struct * sh)
 
 static void FASTCALL BiosGetSh2Interrupt(SH2_struct * sh)
 {
+   u32 cycle = 0;
    SH2GetRegisters(sh, &sh->regs);
 
    // check me
    LOG("BiosGetSh2Interrupt\n");
 
-   sh->regs.R[0] = MappedMemoryReadLongNocache(sh->regs.VBR+(sh->regs.R[4] << 2));
+   sh->regs.R[0] = MappedMemoryReadLong(sh->regs.VBR+(sh->regs.R[4] << 2),&cycle);
    sh->cycles += 5;
 
    sh->regs.PC = sh->regs.PR;
@@ -232,6 +259,7 @@ static void FASTCALL BiosGetSh2Interrupt(SH2_struct * sh)
 
 static void FASTCALL BiosSetScuInterruptMask(SH2_struct * sh)
 {
+   u32 cycle=0;
    SH2GetRegisters(sh, &sh->regs);
 
    // check me
@@ -239,13 +267,13 @@ static void FASTCALL BiosSetScuInterruptMask(SH2_struct * sh)
 
    if (!sh->isslave)
    {
-      MappedMemoryWriteLongNocache(0x06000348, sh->regs.R[4]);
-      MappedMemoryWriteLongNocache(0x25FE00A0, sh->regs.R[4]); // Interrupt Mask Register
-	  MappedMemoryWriteLongNocache(0x25FE00A4, sh->regs.R[4]); // Interrupt Mask Register
+      MappedMemoryWriteLong(0x06000348, sh->regs.R[4],&cycle);
+      MappedMemoryWriteLong(0x25FE00A0, sh->regs.R[4],&cycle); // Interrupt Mask Register
+	  MappedMemoryWriteLong(0x25FE00A4, sh->regs.R[4],&cycle); // Interrupt Mask Register
    }
 
    if (!(sh->regs.R[4] & 0x8000)) // double check this
-      MappedMemoryWriteLongNocache(0x25FE00A8, 1); // A-bus Interrupt Acknowledge
+      MappedMemoryWriteLong(0x25FE00A8, 1,&cycle); // A-bus Interrupt Acknowledge
 
    sh->cycles += 17;
 
@@ -258,25 +286,25 @@ static void FASTCALL BiosSetScuInterruptMask(SH2_struct * sh)
 static void FASTCALL BiosChangeScuInterruptMask(SH2_struct * sh)
 {
    u32 newmask;
+   u32 cycle = 0;
 
    SH2GetRegisters(sh, &sh->regs);
 
    LOG("BiosChangeScuInterruptMask\n");
 
    // Read Stored Scu Interrupt Mask, AND it by R4, OR it by R5, then put it back
-   newmask = (MappedMemoryReadLongNocache(0x06000348) & sh->regs.R[4]) | sh->regs.R[5];
+   newmask = (MappedMemoryReadLong(0x06000348,&cycle) & sh->regs.R[4]) | sh->regs.R[5];
    if (!sh->isslave)
    {
-      MappedMemoryWriteLongNocache(0x06000348, newmask);
-      MappedMemoryWriteLongNocache(0x25FE00A0, newmask); // Interrupt Mask Register
-      MappedMemoryWriteLongNocache(0x25FE00A4, (u32)(s16)sh->regs.R[4]); // Interrupt Status Register
+      MappedMemoryWriteLong(0x06000348, newmask,&cycle);
+      MappedMemoryWriteLong(0x25FE00A0, newmask,&cycle); // Interrupt Mask Register
+      MappedMemoryWriteLong(0x25FE00A4, (u32)(s16)sh->regs.R[4],&cycle); // Interrupt Status Register
    }
 
    if (!(sh->regs.R[4] & 0x8000)) // double check this
-      MappedMemoryWriteLongNocache(0x25FE00A8, 1); // A-bus Interrupt Acknowledge
+      MappedMemoryWriteLong(0x25FE00A8, 1,&cycle); // A-bus Interrupt Acknowledge
 
-   sh->cycles += 20;
-
+   sh->cycles += 100;
    sh->regs.PC = sh->regs.PR;
    SH2SetRegisters(sh, &sh->regs);
 }
@@ -309,7 +337,7 @@ static void FASTCALL BiosGetSemaphore(SH2_struct * sh)
 
    // check me
    LOG("BiosGetSemaphore\n");
-  
+
    if ((temp = MappedMemoryReadByte(0x06000B00 + sh->regs.R[4], NULL)) == 0)
       sh->regs.R[0] = 1;
    else
@@ -317,7 +345,7 @@ static void FASTCALL BiosGetSemaphore(SH2_struct * sh)
 
    temp |= 0x80;
    MappedMemoryWriteByte(0x06000B00 + sh->regs.R[4], temp, NULL);
-   
+
    sh->cycles += 11;
    sh->regs.PC = sh->regs.PR;
    SH2SetRegisters(sh, &sh->regs);
@@ -345,16 +373,17 @@ static void FASTCALL BiosChangeSystemClock(SH2_struct * sh)
 {
    int i, j;
    u32 mask;
+   u32 cycle = 0;
    SH2GetRegisters(sh, &sh->regs);
 
    LOG("BiosChangeSystemClock\n");
 
    // Set new system clock speed
-   MappedMemoryWriteLongNocache(0x06000324, sh->regs.R[4]);
+   MappedMemoryWriteLong(0x06000324, sh->regs.R[4],&cycle);
 
-   MappedMemoryWriteLongNocache(0x25FE00A8, 0); // Clear A-bus Interrupt ACK
-   MappedMemoryWriteLongNocache(0x25FE00B8, 0); // Clear A-Bus Refresh
-   
+   MappedMemoryWriteLong(0x25FE00A8, 0,&cycle); // Clear A-bus Interrupt ACK
+   MappedMemoryWriteLong(0x25FE00B8, 0,&cycle); // Clear A-Bus Refresh
+
    MappedMemoryWriteByte(0xFFFFFE91, 0x80, NULL); // Transition to standby mode
    MappedMemoryWriteWord(0xFFFFFE80, 0xA51D, NULL); // Set WDT counter
    MappedMemoryWriteWord(0xFFFFFEE0, 0x8000, NULL); // Set NMI edge select to high
@@ -368,24 +397,24 @@ static void FASTCALL BiosChangeSystemClock(SH2_struct * sh)
    for (j = 0; j < 3; j++)
    {
       for (i = 0; i < 7; i++)
-         MappedMemoryWriteLongNocache(0x25FE0000+(j*0xC)+(i*4), 0);
+         MappedMemoryWriteLong(0x25FE0000+(j*0xC)+(i*4), 0,&cycle);
    }
 
-   MappedMemoryWriteLongNocache(0x25FE0060, 0); // Clear DMA force stop
-   MappedMemoryWriteLongNocache(0x25FE0080, 0); // Clear DSP Control Port
-   MappedMemoryWriteLongNocache(0x25FE00B0, 0x1FF01FF0); // Reset A-Bus Set
-   MappedMemoryWriteLongNocache(0x25FE00B4, 0x1FF01FF0);
-   MappedMemoryWriteLongNocache(0x25FE00B8, 0x1F); // Reset A-Bus Refresh
-   MappedMemoryWriteLongNocache(0x25FE00A8, 0x1); // Reset A-bus Interrupt ACK
-   MappedMemoryWriteLongNocache(0x25FE0090, 0x3FF); // Reset Timer 0 Compare
-   MappedMemoryWriteLongNocache(0x25FE0094, 0x1FF); // Reset Timer 1 Set Data
-   MappedMemoryWriteLongNocache(0x25FE0098, 0); // Reset Timer 1 Mode
+   MappedMemoryWriteLong(0x25FE0060, 0,&cycle); // Clear DMA force stop
+   MappedMemoryWriteLong(0x25FE0080, 0,&cycle); // Clear DSP Control Port
+   MappedMemoryWriteLong(0x25FE00B0, 0x1FF01FF0,&cycle); // Reset A-Bus Set
+   MappedMemoryWriteLong(0x25FE00B4, 0x1FF01FF0,&cycle);
+   MappedMemoryWriteLong(0x25FE00B8, 0x1F,&cycle); // Reset A-Bus Refresh
+   MappedMemoryWriteLong(0x25FE00A8, 0x1,&cycle); // Reset A-bus Interrupt ACK
+   MappedMemoryWriteLong(0x25FE0090, 0x3FF,&cycle); // Reset Timer 0 Compare
+   MappedMemoryWriteLong(0x25FE0094, 0x1FF,&cycle); // Reset Timer 1 Set Data
+   MappedMemoryWriteLong(0x25FE0098, 0,&cycle); // Reset Timer 1 Mode
 
-   mask = MappedMemoryReadLongNocache(0x06000348);
-   MappedMemoryWriteLongNocache(0x25FE00A0, mask); // Interrupt Mask Register
+   mask = MappedMemoryReadLong(0x06000348,&cycle);
+   MappedMemoryWriteLong(0x25FE00A0, mask,&cycle); // Interrupt Mask Register
 
    if (!(mask & 0x8000))
-      MappedMemoryWriteLongNocache(0x25FE00A8, 1); // A-bus Interrupt Acknowledge
+      MappedMemoryWriteLong(0x25FE00A8, 1,&cycle); // A-bus Interrupt Acknowledge
 
    sh->regs.PC = sh->regs.PR;
    SH2SetRegisters(sh, &sh->regs);
@@ -397,6 +426,7 @@ static void FASTCALL BiosChangeSystemClock(SH2_struct * sh)
 static void FASTCALL BiosChangeScuInterruptPriority(SH2_struct * sh)
 {
    int i;
+   u32 cycle = 0;
 
    SH2GetRegisters(sh, &sh->regs);
 
@@ -405,7 +435,7 @@ static void FASTCALL BiosChangeScuInterruptPriority(SH2_struct * sh)
 
    for (i = 0; i < 0x20; i++)
    {
-      scumasklist[i] = MappedMemoryReadLongNocache(sh->regs.R[4]+(i << 2));
+      scumasklist[i] = MappedMemoryReadLong(sh->regs.R[4]+(i << 2),&cycle);
       sh2masklist[i] = (scumasklist[i] >> 16);
       if (scumasklist[i] & 0x8000)
          scumasklist[i] |= 0xFFFF0000;
@@ -462,12 +492,12 @@ static u32 GetDeviceStats(u32 device, u32 *size, u32 *addr, u32 *blocksize)
    {
       case 0:
         if (yabsys.extend_backup) {
-          *addr = tweak_backup_file_addr;
+          *addr = tweak_backup_file_addr | 0x20000000;
           *size = tweak_backup_file_size;
           *blocksize = 0x40;
         }
         else {
-          *addr      = 0x00180000;
+          *addr      = 0x20180000;
           *size      = 0x800;
           *blocksize = 0x40;
         }
@@ -564,9 +594,9 @@ static u32 FindSave(UNUSED u32 device, u32 stringaddr, u32 blockoffset, u32 size
          // See if string matches, or if there's no string to check, just copy
          // the data over
          for (i3 = 0; i3 < 11; i3++)
-         {            
+         {
             u8 data = MappedMemoryReadByte(stringaddr+i3, NULL);
-                
+
             if (MappedMemoryReadByte(addr+i+0x9+(i3*2), NULL) != data)
             {
                if (data == 0)
@@ -598,7 +628,7 @@ static u32 FindSave2(UNUSED u32 device, const char *string, u32 blockoffset, u32
 
    for (i = ((blockoffset * blocksize) << 1); i < (size << 1); i += (blocksize << 1))
    {
-     
+
 
       // Find a block with the start of a save
       if ( ((s8)MappedMemoryReadByte(addr + i + 1, NULL))  < 0)
@@ -608,7 +638,7 @@ static u32 FindSave2(UNUSED u32 device, const char *string, u32 blockoffset, u32
          // See if string matches, or if there's no string to check, just copy
          // the data over
          for (i3 = 0; i3 < 11; i3++)
-         {            
+         {
             if (MappedMemoryReadByte(addr+i+0x9+(i3*2), NULL) != string[i3])
             {
                if (string[i3] == 0)
@@ -755,24 +785,25 @@ static u16 *ReadBlockTable(u32 addr, u32 *tableaddr, int block, int blocksize, i
 
 void FASTCALL BiosBUPInit(SH2_struct * sh)
 {
+   u32 cycle=0;
    SH2GetRegisters(sh, &sh->regs);
 
    LOG("BiosBUPInit. arg1 = %08X, arg2 = %08X, arg3 = %08X\n", sh->regs.R[4], sh->regs.R[5], sh->regs.R[6]);
 
    // Setup Function table
-   MappedMemoryWriteLongNocache(0x06000354, sh->regs.R[5]);
-   MappedMemoryWriteLongNocache(sh->regs.R[5]+0x00, 0x00000380);
-   MappedMemoryWriteLongNocache(sh->regs.R[5]+0x04, 0x00000384);
-   MappedMemoryWriteLongNocache(sh->regs.R[5]+0x08, 0x00000388);
-   MappedMemoryWriteLongNocache(sh->regs.R[5]+0x0C, 0x0000038C);
-   MappedMemoryWriteLongNocache(sh->regs.R[5]+0x10, 0x00000390);
-   MappedMemoryWriteLongNocache(sh->regs.R[5]+0x14, 0x00000394);
-   MappedMemoryWriteLongNocache(sh->regs.R[5]+0x18, 0x00000398);
-   MappedMemoryWriteLongNocache(sh->regs.R[5]+0x1C, 0x0000039C);
-   MappedMemoryWriteLongNocache(sh->regs.R[5]+0x20, 0x000003A0);
-   MappedMemoryWriteLongNocache(sh->regs.R[5]+0x24, 0x000003A4);
-   MappedMemoryWriteLongNocache(sh->regs.R[5]+0x28, 0x000003A8);
-   MappedMemoryWriteLongNocache(sh->regs.R[5]+0x2C, 0x000003AC);
+   MappedMemoryWriteLong(0x06000354, sh->regs.R[5],&cycle);
+   MappedMemoryWriteLong(sh->regs.R[5]+0x00, 0x00000380,&cycle);
+   MappedMemoryWriteLong(sh->regs.R[5]+0x04, 0x00000384,&cycle);
+   MappedMemoryWriteLong(sh->regs.R[5]+0x08, 0x00000388,&cycle);
+   MappedMemoryWriteLong(sh->regs.R[5]+0x0C, 0x0000038C,&cycle);
+   MappedMemoryWriteLong(sh->regs.R[5]+0x10, 0x00000390,&cycle);
+   MappedMemoryWriteLong(sh->regs.R[5]+0x14, 0x00000394,&cycle);
+   MappedMemoryWriteLong(sh->regs.R[5]+0x18, 0x00000398,&cycle);
+   MappedMemoryWriteLong(sh->regs.R[5]+0x1C, 0x0000039C,&cycle);
+   MappedMemoryWriteLong(sh->regs.R[5]+0x20, 0x000003A0,&cycle);
+   MappedMemoryWriteLong(sh->regs.R[5]+0x24, 0x000003A4,&cycle);
+   MappedMemoryWriteLong(sh->regs.R[5]+0x28, 0x000003A8,&cycle);
+   MappedMemoryWriteLong(sh->regs.R[5]+0x2C, 0x000003AC,&cycle);
 
    // Setup Device list
 
@@ -856,6 +887,7 @@ static void FASTCALL BiosBUPStatus(SH2_struct * sh)
    u32 freeblocks=0;
    u32 needsize;
    int aftersize;
+   u32 cycle;
 
    SH2GetRegisters(sh, &sh->regs);
 
@@ -879,13 +911,16 @@ static void FASTCALL BiosBUPStatus(SH2_struct * sh)
    needsize = sh->regs.R[5];
    aftersize = (((blocksize - 6) * freeblocks) - 30) - needsize;
    if (aftersize < 0) aftersize = 0;
+   if ( aftersize > 0xFFFF) {
+     aftersize = 0xFFFF;
+   }
 
-   MappedMemoryWriteLongNocache(sh->regs.R[6], size); // Size of Backup Ram (in bytes)
-   MappedMemoryWriteLongNocache(sh->regs.R[6]+0x4, size / blocksize); // Size of Backup Ram (in blocks)
-   MappedMemoryWriteLongNocache(sh->regs.R[6]+0x8, blocksize); // Size of block
-   MappedMemoryWriteLongNocache(sh->regs.R[6]+0xC, ((blocksize - 6) * freeblocks) - 30); // Free space(in bytes)
-   MappedMemoryWriteLongNocache(sh->regs.R[6]+0x10, freeblocks); // Free space(in blocks)
-   MappedMemoryWriteLongNocache(sh->regs.R[6]+0x14, aftersize / blocksize); // writable block size
+   MappedMemoryWriteLong(sh->regs.R[6], size,&cycle); // Size of Backup Ram (in bytes)
+   MappedMemoryWriteLong(sh->regs.R[6]+0x4, size / blocksize,&cycle); // Size of Backup Ram (in blocks)
+   MappedMemoryWriteLong(sh->regs.R[6]+0x8, blocksize,&cycle); // Size of block
+   MappedMemoryWriteLong(sh->regs.R[6]+0xC, ((blocksize - 6) * freeblocks) - 30,&cycle); // Free space(in bytes)
+   MappedMemoryWriteLong(sh->regs.R[6]+0x10, freeblocks,&cycle); // Free space(in blocks)
+   MappedMemoryWriteLong(sh->regs.R[6]+0x14, aftersize / blocksize,&cycle); // writable block size
 
    // cycles need to be incremented
 
@@ -909,10 +944,17 @@ static void FASTCALL BiosBUPWrite(SH2_struct * sh)
    u32 blockswritten=0;
    u32 datasize;
    u32 i;
+   u32 cycle = 0;
+   char fname[12];
 
    SH2GetRegisters(sh, &sh->regs);
 
-   LOG("BiosBUPWrite. arg1 = %d, arg2 = %08X, arg3 = %08X, arg4 = %d, PR = %08X\n", sh->regs.R[4], sh->regs.R[5], sh->regs.R[6], sh->regs.R[7], sh->regs.PR);
+   for (i = 0; i < 11; i++) {
+     fname[i] = MappedMemoryReadByte(sh->regs.R[5] + i, NULL);
+   }
+   fname[11] = 0;
+
+   LOG("BiosBUPWrite. arg1 = %d, arg2 = %s, arg3 = %08X, arg4 = %d, PR = %08X\n", sh->regs.R[4], fname, sh->regs.R[6], sh->regs.R[7], sh->regs.PR);
 
    // Fill in status variables
    ret = GetDeviceStats(sh->regs.R[4], &size, &addr, &blocksize);
@@ -945,7 +987,7 @@ static void FASTCALL BiosBUPWrite(SH2_struct * sh)
    }
 
    // Let's figure out how many blocks will be needed for the save
-   datasize = MappedMemoryReadLongNocache(sh->regs.R[5]+0x1C);
+   datasize = MappedMemoryReadLong(sh->regs.R[5]+0x1C,&cycle);
    savesize = (datasize + 0x1D) / (blocksize - 6);
    if ((datasize + 0x1D) % (blocksize - 6))
       savesize++;
@@ -1045,6 +1087,29 @@ static void FASTCALL BiosBUPWrite(SH2_struct * sh)
 
    LOG("BiosBUPWrite from %08X size %08X", sh->regs.R[6], datasize);
 
+   if (Bios_onBackupWrite != NULL) {
+     u32 tmpblockswritten = blockswritten;
+     char * before = (char*)malloc(datasize);
+     char * after = (char*)malloc(datasize);
+
+     u32 before_addr = workaddr;
+     u32 after_addr = sh->regs.R[6];
+
+     for (int i = 0; i < datasize; i++) {
+       before[i] = MappedMemoryReadByte(before_addr, NULL);
+       after[i] = MappedMemoryReadByte(after_addr, NULL);
+
+       after_addr++;
+       before_addr += 2;
+       if (((before_addr - 1) & ((blocksize << 1) - 1)) == 0) {
+         tmpblockswritten++;
+         before_addr = addr + (blocktbl[tmpblockswritten] * blocksize * 2) + 9;
+       }
+     }
+     Bios_onBackupWrite(fname, before, after, datasize);
+     free(before);
+     free(after);
+   }
 
    // Lastly, write the actual save data
    //FILE * fp = fopen("writecheck.bin", "wb");
@@ -1053,7 +1118,7 @@ static void FASTCALL BiosBUPWrite(SH2_struct * sh)
       const u8 val = MappedMemoryReadByte(sh->regs.R[6], NULL);
       MappedMemoryWriteByte(workaddr, val, NULL);
       //fputc(val,fp);
-      
+
       //LOG("write block=%d, baddr = %08X, %08X, %02X", blockswritten, blocktbl[blockswritten], workaddr, MappedMemoryReadByte(sh->regs.R[6]));
 
       datasize--;
@@ -1298,12 +1363,12 @@ static void FASTCALL BiosBUPVerify(SH2_struct * sh)
       return;
    }
 
-   // Now let's read in the data, and check to see if it matches 
+   // Now let's read in the data, and check to see if it matches
    while (datasize > 0)
    {
       if (MappedMemoryReadByte(sh->regs.R[6], NULL) != MappedMemoryReadByte(tableaddr, NULL))
       {
-         LOG("BiosBUPVerify. failed at %08X  want = %02X get = %08X\n", tableaddr, 
+         LOG("BiosBUPVerify. failed at %08X  want = %02X get = %08X\n", tableaddr,
            MappedMemoryReadByte(sh->regs.R[6],NULL),
            MappedMemoryReadByte(tableaddr, NULL));
          free(blocktbl);
@@ -1375,7 +1440,7 @@ static void ConvertMonthAndDay(u32 data, u32 monthaddr, u32 dayaddr, int type)
    {
       // Month
       MappedMemoryWriteByte(monthaddr, (u8)(i + 1),NULL);
-      
+
       // Day
       MappedMemoryWriteByte(dayaddr, (u8)(data - monthtbl[(i - 1)] + 1),NULL);
    }
@@ -1421,7 +1486,7 @@ static void ConvertMonthAndDayMem(u32 data, u8 * monthaddr, u8 * dayaddr, int ty
    {
       // Month
       *monthaddr = (u8)(i + 1);
-      
+
       // Day
       *dayaddr = (u8)(data - monthtbl[(i - 1)] + 1);
    }
@@ -1472,7 +1537,7 @@ static void FASTCALL BiosBUPGetDate(SH2_struct * sh)
 
    // Year
    MappedMemoryWriteByte(sh->regs.R[5], (u8)(((div / 0x5B5) * 4) + yearoffset),NULL);
-   
+
    sh->regs.PC = sh->regs.PR;
    SH2SetRegisters(sh, &sh->regs);
 }
@@ -1530,49 +1595,50 @@ static void FASTCALL BiosBUPSetDate(SH2_struct * sh)
 static void FASTCALL BiosHandleScuInterrupt(SH2_struct * sh, int vector)
 {
    SH2GetRegisters(sh, &sh->regs);
+   u32 cycle=0;
 
    LOG("BiosHandleScuInterrupt");
 
    // Save R0-R7, PR, GBR, and old Interrupt mask to stack
    sh->regs.R[15] -= 4;
-   MappedMemoryWriteLongNocache(sh->regs.R[15], sh->regs.R[0]);
+   MappedMemoryWriteLong(sh->regs.R[15], sh->regs.R[0],&cycle);
    sh->regs.R[15] -= 4;
-   MappedMemoryWriteLongNocache(sh->regs.R[15], sh->regs.R[1]);
+   MappedMemoryWriteLong(sh->regs.R[15], sh->regs.R[1],&cycle);
    sh->regs.R[15] -= 4;
-   MappedMemoryWriteLongNocache(sh->regs.R[15], sh->regs.R[2]);
+   MappedMemoryWriteLong(sh->regs.R[15], sh->regs.R[2],&cycle);
    sh->regs.R[15] -= 4;
-   MappedMemoryWriteLongNocache(sh->regs.R[15], sh->regs.R[3]);
+   MappedMemoryWriteLong(sh->regs.R[15], sh->regs.R[3],&cycle);
    sh->regs.R[15] -= 4;
-   MappedMemoryWriteLongNocache(sh->regs.R[15], MappedMemoryReadLongNocache(0x06000348));
+   MappedMemoryWriteLong(sh->regs.R[15], MappedMemoryReadLong(0x06000348,&cycle),&cycle);
    sh->regs.R[15] -= 4;
-   MappedMemoryWriteLongNocache(sh->regs.R[15], sh->regs.R[4]);
+   MappedMemoryWriteLong(sh->regs.R[15], sh->regs.R[4],&cycle);
    sh->regs.R[15] -= 4;
-   MappedMemoryWriteLongNocache(sh->regs.R[15], sh->regs.R[5]);
+   MappedMemoryWriteLong(sh->regs.R[15], sh->regs.R[5],&cycle);
    sh->regs.R[15] -= 4;
-   MappedMemoryWriteLongNocache(sh->regs.R[15], sh->regs.R[6]);
+   MappedMemoryWriteLong(sh->regs.R[15], sh->regs.R[6],&cycle);
    sh->regs.R[15] -= 4;
-   MappedMemoryWriteLongNocache(sh->regs.R[15], sh->regs.R[7]);
+   MappedMemoryWriteLong(sh->regs.R[15], sh->regs.R[7],&cycle);
    sh->regs.R[15] -= 4;
-   MappedMemoryWriteLongNocache(sh->regs.R[15], sh->regs.PR);
+   MappedMemoryWriteLong(sh->regs.R[15], sh->regs.PR,&cycle);
    sh->regs.R[15] -= 4;
-   MappedMemoryWriteLongNocache(sh->regs.R[15], sh->regs.GBR);
+   MappedMemoryWriteLong(sh->regs.R[15], sh->regs.GBR,&cycle);
 
    // Set SR according to vector
    sh->regs.SR.all = (u32)sh2masklist[vector - 0x40];
 
-   // Write new Interrupt mask value   
-   MappedMemoryWriteLongNocache(0x06000348, MappedMemoryReadLongNocache(0x06000348) | scumasklist[vector - 0x40]);
-   MappedMemoryWriteLongNocache(0x25FE00A0, MappedMemoryReadLongNocache(0x06000348) | scumasklist[vector - 0x40]);
+   // Write new Interrupt mask value
+   MappedMemoryWriteLong(0x06000348, MappedMemoryReadLong(0x06000348,&cycle) | scumasklist[vector - 0x40],&cycle);
+   MappedMemoryWriteLong(0x25FE00A0, MappedMemoryReadLong(0x06000348,&cycle) | scumasklist[vector - 0x40],&cycle);
 
    // Set PR to our Interrupt Return handler
    sh->regs.PR = 0x00000480;
 
    // Now execute the interrupt
    u32 old_pc = sh->regs.PC;
-   sh->regs.PC = MappedMemoryReadLongNocache(0x06000900+(vector << 2));
+   sh->regs.PC = MappedMemoryReadLong(0x06000900+(vector << 2),&cycle);
    //LOG("Interrupt from: %08X to %08X", old_pc, sh->regs.PC );
 
-   sh->cycles += 32;
+   sh->cycles += 200;
    SH2SetRegisters(sh, &sh->regs);
 }
 
@@ -1581,47 +1647,48 @@ static void FASTCALL BiosHandleScuInterrupt(SH2_struct * sh, int vector)
 static void FASTCALL BiosHandleScuInterruptReturn(SH2_struct * sh)
 {
    u32 oldmask;
+   u32 cycle = 0;
 
    LOG("BiosHandleScuInterruptReturn");
 
    SH2GetRegisters(sh, &sh->regs);
 
    // Restore R0-R7, PR, GBR, and old Interrupt mask from stack
-   sh->regs.GBR = MappedMemoryReadLongNocache(sh->regs.R[15]);
+   sh->regs.GBR = MappedMemoryReadLong(sh->regs.R[15],&cycle);
    sh->regs.R[15] += 4;
-   sh->regs.PR = MappedMemoryReadLongNocache(sh->regs.R[15]);
+   sh->regs.PR = MappedMemoryReadLong(sh->regs.R[15],&cycle);
    sh->regs.R[15] += 4;
-   sh->regs.R[7] = MappedMemoryReadLongNocache(sh->regs.R[15]);
+   sh->regs.R[7] = MappedMemoryReadLong(sh->regs.R[15],&cycle);
    sh->regs.R[15] += 4;
-   sh->regs.R[6] = MappedMemoryReadLongNocache(sh->regs.R[15]);
+   sh->regs.R[6] = MappedMemoryReadLong(sh->regs.R[15],&cycle);
    sh->regs.R[15] += 4;
-   sh->regs.R[5] = MappedMemoryReadLongNocache(sh->regs.R[15]);
+   sh->regs.R[5] = MappedMemoryReadLong(sh->regs.R[15],&cycle);
    sh->regs.R[15] += 4;
-   sh->regs.R[4] = MappedMemoryReadLongNocache(sh->regs.R[15]);
+   sh->regs.R[4] = MappedMemoryReadLong(sh->regs.R[15],&cycle);
    sh->regs.R[15] += 4;
    // Return SR back to normal
    sh->regs.SR.all = 0xF0;
-   oldmask = MappedMemoryReadLongNocache(sh->regs.R[15]);
-   MappedMemoryWriteLongNocache(0x06000348, oldmask);
-   MappedMemoryWriteLongNocache(0x25FE00A0, oldmask);
+   oldmask = MappedMemoryReadLong(sh->regs.R[15],&cycle);
+   MappedMemoryWriteLong(0x06000348, oldmask,&cycle);
+   MappedMemoryWriteLong(0x25FE00A0, oldmask,&cycle);
    sh->regs.R[15] += 4;
-   sh->regs.R[3] = MappedMemoryReadLongNocache(sh->regs.R[15]);
+   sh->regs.R[3] = MappedMemoryReadLong(sh->regs.R[15],&cycle);
    sh->regs.R[15] += 4;
-   sh->regs.R[2] = MappedMemoryReadLongNocache(sh->regs.R[15]);
+   sh->regs.R[2] = MappedMemoryReadLong(sh->regs.R[15],&cycle);
    sh->regs.R[15] += 4;
-   sh->regs.R[1] = MappedMemoryReadLongNocache(sh->regs.R[15]);
+   sh->regs.R[1] = MappedMemoryReadLong(sh->regs.R[15],&cycle);
    sh->regs.R[15] += 4;
-   sh->regs.R[0] = MappedMemoryReadLongNocache(sh->regs.R[15]);
+   sh->regs.R[0] = MappedMemoryReadLong(sh->regs.R[15],&cycle);
    sh->regs.R[15] += 4;
 
-   sh->regs.PC = MappedMemoryReadLongNocache(sh->regs.R[15]);
+   sh->regs.PC = MappedMemoryReadLong(sh->regs.R[15],&cycle);
    sh->regs.R[15] += 4;
-   sh->regs.SR.all = MappedMemoryReadLongNocache(sh->regs.R[15]) & 0x000003F3;
+   sh->regs.SR.all = MappedMemoryReadLong(sh->regs.R[15],&cycle) & 0x000003F3;
    sh->regs.R[15] += 4;
 
    //LOG("Interrupt return PC = %08X\n", sh->regs.PC);
 
-   sh->cycles += 32;
+   sh->cycles += 200;
    SH2SetRegisters(sh, &sh->regs);
 }
 
@@ -1785,7 +1852,7 @@ deviceinfo_struct *BupGetDeviceList(int *numdevices)
    if ((CartridgeArea->cartid & 0xF0) == 0x20)
    {
       device[1].id = 1;
-      sprintf(device[1].name, "%d Mbit Backup RAM Cartridge", 1 << ((CartridgeArea->cartid & 0xF)+1));  
+      sprintf(device[1].name, "%d Mbit Backup RAM Cartridge", 1 << ((CartridgeArea->cartid & 0xF)+1));
    }
 
    // For now it's only internal backup ram and cartridge, no floppy :(
@@ -1884,7 +1951,7 @@ saveinfo_struct *BupGetSaveList(u32 device, int *numsaves)
         save[savecount].date = date;
         save[savecount].hour = (u8)((date % 0x5A0) / 0x3C);
         save[savecount].minute = (u8)(date % 0x3C);
-           
+
         u32 div = date / 0x5A0;
         if (div > 0xAB71)
           save[savecount].week = (u8)((div + 1) % 7);
@@ -2008,7 +2075,7 @@ int BupImportSave(UNUSED u32 device, const char *filename)
    if (!filename)
       return -1;
 
-   if ((fp = fopen(filename, "rb")) == NULL)
+   if ((fp = fopen_utf8(filename, "rb")) == NULL)
       return -1;
 
    // Calculate file size
@@ -2093,7 +2160,7 @@ int BiosBUPExport(u32 device, const char *savename, char ** buf, int * bufsize )
     return -1;
   }
   *bufsize = datasize;
-  
+
   //FILE * fp = fopen("savecheck.bin", "wb");
   // Now let's read in the data
   i=0;
@@ -2133,7 +2200,7 @@ int BiosBUPImport( u32 device, saveinfo_struct * saveinfo, const char * buf, int
    u32 i;
    u32 rindex;
 
-   //LOG("BiosBUPWrite. arg1 = %d, arg2 = %08X, arg3 = %08X, arg4 = %d, PR = %08X\n", 
+   //LOG("BiosBUPWrite. arg1 = %d, arg2 = %08X, arg3 = %08X, arg4 = %d, PR = %08X\n",
    //sh->regs.R[4], sh->regs.R[5], sh->regs.R[6], sh->regs.R[7], sh->regs.PR);
 
    // Fill in status variables
@@ -2193,7 +2260,7 @@ int BiosBUPImport( u32 device, saveinfo_struct * saveinfo, const char * buf, int
 
    // Copy over language
    MappedMemoryWriteByte(workaddr+0x1F, saveinfo->language, NULL);
-  
+
   // Copy over date
   MappedMemoryWriteByte(workaddr+0x35, (saveinfo->date>>24)&0xFF, NULL);
   MappedMemoryWriteByte(workaddr+0x37, (saveinfo->date>>16)&0xFF, NULL);
@@ -2201,7 +2268,7 @@ int BiosBUPImport( u32 device, saveinfo_struct * saveinfo, const char * buf, int
   MappedMemoryWriteByte(workaddr+0x3B, saveinfo->date&0xFF, NULL);
 
 
-  // Copy over data size 
+  // Copy over data size
   MappedMemoryWriteByte(workaddr+0x3D, (saveinfo->datasize>>24)&0xFF, NULL);
   MappedMemoryWriteByte(workaddr+0x3F, (saveinfo->datasize>>16)&0xFF, NULL);
   MappedMemoryWriteByte(workaddr+0x41, (saveinfo->datasize>>8)&0xFF, NULL);
@@ -2253,7 +2320,7 @@ int BiosBUPImport( u32 device, saveinfo_struct * saveinfo, const char * buf, int
    {
       MappedMemoryWriteByte(workaddr, buf[rindex], NULL);
       //fputc(MappedMemoryReadByte(sh->regs.R[6]),fp);
-      
+
       //LOG("write block=%d, baddr = %08X, %08X, %02X", blockswritten, blocktbl[blockswritten], workaddr, MappedMemoryReadByte(sh->regs.R[6]));
 
       datasize--;
@@ -2286,15 +2353,15 @@ static void FASTCALL BiosBUPRead(SH2_struct * sh)
   int numblocks;
   int blocksread;
   u32 datasize;
-  char fname[11];
+  char fname[12];
   int i;
-  
+
   SH2GetRegisters(sh, &sh->regs);
 
-  for (i = 0; i < 10; i++) {
+  for (i = 0; i < 11; i++) {
     fname[i] = MappedMemoryReadByte(sh->regs.R[5]+i, NULL);
   }
-  fname[10] = 0;
+  fname[11] = 0;
 
    LOG("BiosBUPRead rtn=%08X device=%d, %s, \n", sh->regs.PR, sh->regs.R[4], fname);
 
@@ -2401,4 +2468,5 @@ int BiosBUPStatusMem( int device, devicestatus_struct * status )
 }
 
 //////////////////////////////////////////////////////////////////////////////
+
 

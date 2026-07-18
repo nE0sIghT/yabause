@@ -52,10 +52,19 @@
 #include <QDesktopServices>
 #include <QDateTime>
 #include <QWindow>
-#include <QMetaObject>
 #include <QDebug>
+#include <QRegularExpression>
+#include <QResource>
 
 #include <firebase/app.h>
+
+#ifdef HAVE_VULKAN
+//#include "vulkan/VIDVulkan.h"
+#include "vulkan/VIDVulkanCInterface.h"
+#endif
+#include "QYabVulkanWidget.h"
+
+#include "winsparkle.h"
 
 extern "C" {
 extern VideoInterface_struct *VIDCoreList[];
@@ -105,10 +114,31 @@ UIYabause::UIYabause( QWidget* parent )
 		cbVideoDriver->addItem( VIDCoreList[i]->Name, VIDCoreList[i]->id );
 	cbVideoDriver->blockSignals( false );
 	// create glcontext
-	mYabauseGL = new YabauseGL( this );
-	// and set it as central application widget
-	setCentralWidget( mYabauseGL );
-	mYabauseGL->show();
+	
+
+	// ÔøΩXÔøΩ^ÔøΩbÔøΩNÔøΩEÔøΩBÔøΩWÔøΩFÔøΩbÔøΩgÔøΩÔøΩÔøΩÏê¨
+	mStackedWidget = new QStackedWidget(this);
+	setCentralWidget(mStackedWidget);
+
+	// FileSearchWidgetÔøΩÔøΩÔøΩÏê¨
+	mFileSearch = new FileSearchWidget(this);
+	mStackedWidget->addWidget(mFileSearch);
+
+	// YabauseGLÔøΩÔøΩÔøΩÏê¨
+	mYabauseGL = new YabauseGL(this);
+	mStackedWidget->addWidget(mYabauseGL);
+
+	mYabVulkanWidget = new QYabVulkanWidget();
+	mYabVulkanWidget->setMinimumSize(800, 600);
+
+	mStackedWidget->addWidget(mYabVulkanWidget);
+
+	mStackedWidget->setCurrentWidget(mFileSearch);
+
+
+	connect(mFileSearch, &FileSearchWidget::fileSelected,
+		this, &UIYabause::handleFileSelected);
+
 	// create log widget
 	teLog = new QTextEdit( this );
 	teLog->setReadOnly( true );
@@ -147,6 +177,9 @@ UIYabause::UIYabause( QWidget* parent )
 	connect( mouseCursorTimer, SIGNAL( timeout() ), this, SLOT( cursorRestore() ));
 	connect( mYabauseThread, SIGNAL( toggleEmulateMouse( bool ) ), this, SLOT( toggleEmulateMouse( bool ) ) );
 
+	connect(this, SIGNAL(windowWasShown()), this, SLOT(initWinSparkle()),
+		Qt::ConnectionType(Qt::QueuedConnection | Qt::UniqueConnection));
+
   //connect(this, SIGNAL(setStateFileLoaded(std::string)), this, SLOT(onStateFileLoaded(std::string)));
 
 	// Load shortcuts
@@ -172,7 +205,7 @@ UIYabause::UIYabause( QWidget* parent )
 	}
 
 	restoreGeometry( vs->value("General/Geometry" ).toByteArray() );
-	mYabauseGL->setMouseTracking(true);
+	//mYabauseGL->setMouseTracking(true);
 	setMouseTracking(true);
 	mouseXRatio = mouseYRatio = 1.0;
 	emulateMouse = false;
@@ -188,16 +221,22 @@ UIYabause::UIYabause( QWidget* parent )
   using std::placeholders::_1;
   p->f_takeScreenshot = std::bind(&UIYabause::takeScreenshot, this, _1);
 
-	// Initialize cloud service
-	std::thread t([&]{
-    firebase::AppOptions options;
-    options.set_app_id("1:749919523054:android:3a92de2bc803c4bf");
-    options.set_api_key("AIzaSyAAqH_-n3Q42YAyVJvF-0nCvjLBaUa79-A");
-    options.set_database_url("https://uoyabause.firebaseio.com");
-    //options.set_ga_tracking_id("749919523054");
-    options.set_storage_bucket("uoyabause.appspot.com");
-    options.set_project_id("uoyabause");
-    app = firebase::App::Create(options);	
+	QSettings settings("settings.ini", QSettings::IniFormat);
+	QString appId = settings.value("CloudService/app_id").toString();
+	QString apiKey = settings.value("CloudService/api_key").toString();
+	QString databaseUrl = settings.value("CloudService/database_url").toString();
+	QString storageBucket = settings.value("CloudService/storage_bucket").toString();
+	QString projectId = settings.value("CloudService/project_id").toString();
+
+	// Firebase ÔøΩÃèÔøΩÔøΩÔøΩÔøΩÔøΩ
+	std::thread t([=] {
+		firebase::AppOptions options;
+		options.set_app_id(appId.toStdString().c_str());
+		options.set_api_key(apiKey.toStdString().c_str());
+		options.set_database_url(databaseUrl.toStdString().c_str());
+		options.set_storage_bucket(storageBucket.toStdString().c_str());
+		options.set_project_id(projectId.toStdString().c_str());
+		app = firebase::App::Create(options);
 	});
 	t.detach();
 
@@ -205,7 +244,51 @@ UIYabause::UIYabause( QWidget* parent )
 
 UIYabause::~UIYabause()
 {
+	win_sparkle_cleanup();
 	mCanLog = false;
+}
+
+void UIYabause::handleFileSelected(const QString& filePath)
+{
+	qDebug() << "Selected file:" << filePath;
+
+	VolatileSettings* vs = QtYabause::volatileSettings();
+	const int currentCDCore = vs->value("General/CdRom").toInt();
+	const QString currentCdRomISO = vs->value("General/CdRomISO").toString();
+
+	QtYabause::settings()->setValue("Recents/ISOs", filePath);
+
+	// Save it permanently
+	QtYabause::settings()->setValue("General/CdRom", ISOCD.id);
+	QtYabause::settings()->setValue("General/CdRomISO", filePath);
+	QtYabause::settings()->setValue("General/PlaySSF", false);
+
+	vs->setValue("autostart", false);
+	vs->setValue("General/CdRom", ISOCD.id);
+	vs->setValue("General/CdRomISO", filePath);
+	vs->setValue("General/PlaySSF", false);
+
+	int vidcoretype = vs->value("Video/VideoCore").toInt();
+	if (vidcoretype == VIDCORE_VULKAN) {
+		mStackedWidget->setCurrentWidget(mYabVulkanWidget);
+		mYabVulkanWidget->show();
+
+		mYabauseThread->pauseEmulation(false, true, [&]() {
+			mYabVulkanWidget->setYabauseThread(mYabauseThread);
+		});
+
+		mYabVulkanWidget->update();
+	}
+	else {
+		mStackedWidget->setCurrentWidget(mYabauseGL);
+		mYabauseGL->setYabauseThread(mYabauseThread);
+		mYabauseGL->makeCurrent();
+		mYabauseThread->pauseEmulation(false, true);
+		mYabauseGL->update();
+	}
+
+	refreshStatesActions();
+
 }
 
 void UIYabause::showEvent( QShowEvent* e )
@@ -218,10 +301,10 @@ void UIYabause::showEvent( QShowEvent* e )
 		LogChangeOutput( DEBUG_CALLBACK, (char*)qAppendLog );
 		VolatileSettings* vs = QtYabause::volatileSettings();
 
-		if ( vs->value( "View/Menubar" ).toInt() == BD_ALWAYSHIDE )
-			menubar->hide();
-		if ( vs->value( "View/Toolbar" ).toInt() == BD_ALWAYSHIDE )
-			toolBar->hide();
+		//if ( vs->value( "View/Menubar" ).toInt() == BD_ALWAYSHIDE )
+	//		menubar->hide();
+		//if ( vs->value( "View/Toolbar" ).toInt() == BD_ALWAYSHIDE )
+	//		toolBar->hide();
 		if ( vs->value( "autostart" ).toBool() )
 			aEmulationRun->trigger();
 		aEmulationFrameSkipLimiter->setChecked( vs->value( "General/EnableFrameSkipLimiter" ).toBool() );
@@ -231,6 +314,83 @@ void UIYabause::showEvent( QShowEvent* e )
 		//QMetaObject::invokeMethod(this, "on_aHelpAbout_triggered", Qt::QueuedConnection );
 
 	}
+
+	emit windowWasShown();
+
+}
+
+#include <cstdlib>
+#include <cwchar>
+
+std::string versionToScalar(const std::string& version) {
+	std::stringstream ss(version);
+	std::string segment;
+	std::vector<int> parts;
+
+	// ÉoÅ[ÉWÉáÉìï∂éöóÒÇ "." Ç≈ï™äÑ
+	while (std::getline(ss, segment, '.')) {
+		parts.push_back(std::stoi(segment));
+	}
+
+	// äeïîï™ÇÉXÉJÉâÅ[ílÇ…ïœä∑
+	std::ostringstream result;
+	if (parts.size() > 0) {
+		result << std::setw(3) << std::setfill('0') << std::setw(3) << parts[0]; // MajorÉoÅ[ÉWÉáÉìÅi1åÖÅj
+	}
+	if (parts.size() > 1) {
+		result << std::setw(3) << std::setfill('0') << parts[1]; // MinorÉoÅ[ÉWÉáÉìÅi3åÖÅj
+	}
+	if (parts.size() > 2) {
+		result << std::setw(3) << std::setfill('0') << parts[2]; // PatchÉoÅ[ÉWÉáÉìÅi3åÖÅj
+	}
+
+	result << "000"; // éËìÆ
+
+	return result.str();
+}
+
+// char* Ç wchar_t* Ç…ïœä∑Ç∑ÇÈä÷êî
+std::wstring charToWString(const char* str) {
+	size_t len = std::strlen(str);
+	std::wstring wstr(len, L'\0');
+	std::mbstowcs(&wstr[0], str, len);
+	return wstr;
+}
+
+void UIYabause::initWinSparkle()
+{
+	std::string scalar = versionToScalar(VERSION);
+	std::wstring wScalarVersion = charToWString(scalar.c_str());
+	win_sparkle_set_app_build_version(wScalarVersion.c_str());
+
+	// Setup updates feed. This must be done before win_sparkle_init(), but
+	// could be also, often more conveniently, done using a VERSIONINFO Windows
+	// resource. See the "psdk" example and its .rc file for an example of that
+	// (these calls wouldn't be needed then).
+	win_sparkle_set_appcast_url("https://www.uoyabause.org/appcast.xml");
+	std::wstring wVersion = charToWString(VERSION);
+	win_sparkle_set_app_details(L"devMiyax", L"YabaSanshiro", wVersion.c_str());
+
+	// Set DSA public key used to verify update's signature.
+	// This is na example how to provide it from external source (i.e. from Qt
+	// resource). See the "psdk" example and its .rc file for an example how to
+	// provide the key using Windows resource.
+	win_sparkle_set_dsa_pub_pem(reinterpret_cast<const char*>(QResource(":/pem/dsa_pub.pem").data()));
+
+	win_sparkle_set_automatic_check_for_updates(1);
+	win_sparkle_set_update_check_interval(3600*8);
+
+	// Initialize the updater and possibly show some UI
+	win_sparkle_init();
+}
+
+void UIYabause::checkForUpdates()
+{
+	win_sparkle_check_update_with_ui();
+}
+
+void UIYabause::on_actionCheck_for_updates_triggered() {
+	win_sparkle_check_update_with_ui();
 }
 
 void UIYabause::closeEvent( QCloseEvent* e )
@@ -254,6 +414,10 @@ void UIYabause::keyPressEvent( QKeyEvent* e )
 		mouseCaptured = false;
 	else
 		PerKeyDown( e->key() ); 
+
+	//if (e->key() == Qt::Key_Alt) {
+	//	toggleMenuAndToolBar();
+	//}
 }
 
 void UIYabause::keyReleaseEvent( QKeyEvent* e )
@@ -340,10 +504,9 @@ void UIYabause::mouseMoveEvent( QMouseEvent* e )
 		}
 		else if (vs->value( "View/Menubar" ).toInt() == BD_SHOWONFSHOVER)
 		{
-			if (e->y() < showMenuBarHeight)
-				menubar->show();
-			else
-				menubar->hide();
+//			if (e->y() < showMenuBarHeight)				menubar->show();
+//			else
+//				menubar->hide();
 		}
 
 		hideMouseTimer->start(3 * 1000);
@@ -353,6 +516,7 @@ void UIYabause::mouseMoveEvent( QMouseEvent* e )
 
 void UIYabause::resizeEvent( QResizeEvent* event )
 {
+#if 0
   mYabauseGL->viewport_width_ = event->size().width();
   mYabauseGL->viewport_height_ = event->size().height();
   mYabauseGL->viewport_origin_x_ = 0;
@@ -362,7 +526,7 @@ void UIYabause::resizeEvent( QResizeEvent* event )
     	fixAspectRatio(event->size().width(), event->size().height());
 		mYabauseGL->updateView( event->size() );
 	}
-
+#endif
 	QMainWindow::resizeEvent( event );
 
 }
@@ -370,11 +534,11 @@ void UIYabause::resizeEvent( QResizeEvent* event )
 void UIYabause::adjustHeight(int & height)
 {
   // Compensate for menubar and toolbar
-  VolatileSettings* vs = QtYabause::volatileSettings();
-  if (vs->value("View/Menubar").toInt() != BD_ALWAYSHIDE)
-    height += menubar->height();
-  if (vs->value("View/Toolbar").toInt() != BD_ALWAYSHIDE)
-    height += toolBar->height();
+  //VolatileSettings* vs = QtYabause::volatileSettings();
+  //if (vs->value("View/Menubar").toInt() != BD_ALWAYSHIDE)
+  //  height += menubar->height();
+  //if (vs->value("View/Toolbar").toInt() != BD_ALWAYSHIDE)
+  //  height += toolBar->height();
 }
 
 void UIYabause::resizeIntegerScaling()
@@ -420,7 +584,7 @@ void UIYabause::resizeIntegerScaling()
    else
       height = vdp2height * (multiplier / 2);
 
-   mYabauseGL->resize(width, height);
+   //mYabauseGL->resize(width, height);
 
    adjustHeight(height);
 
@@ -432,16 +596,16 @@ void UIYabause::swapBuffers()
 { 
    resizeIntegerScaling();
 
-#if (QT_VERSION >= QT_VERSION_CHECK(5, 0, 0))
+//#if (QT_VERSION >= QT_VERSION_CHECK(5, 0, 0))
     // QOpenGLContext complains if we swap on an non-exposed QWindow
-    if (!mYabauseGL || !mYabauseGL->windowHandle()->isExposed()){
-		printf("Not Exporsed\n");
-        return;
-	}
-#endif
+//    if (!mYabauseGL || !mYabauseGL->windowHandle()->isExposed()){
+//		printf("Not Exporsed\n");
+//        return;
+//	}
+//#endif
 
-	mYabauseGL->swapBuffers(); 
-	mYabauseGL->makeCurrent();
+	//mYabauseGL->update();
+	//mYabauseGL->makeCurrent();
 }
 
 void UIYabause::appendLog( const char* s )
@@ -451,6 +615,8 @@ void UIYabause::appendLog( const char* s )
 		qWarning( "%s", s );
 		return;
 	}
+
+	lastErrorMessage = s;
 
 	teLog->moveCursor( QTextCursor::End );
 	teLog->append( s );
@@ -474,12 +640,13 @@ void UIYabause::errorReceived( const QString& error, bool internal )
 		appendLog( error.toLocal8Bit().constData() );
 	}
 	else {
-		CommonDialogs::information( error );
+		CommonDialogs::information( error + "\n" + lastErrorMessage );
 	}
 }
 
 void UIYabause::sizeRequested( const QSize& s )
 {
+/*
 	int heightOffset = toolBar->height()+menubar->height();
 	int width, height;
 	if (s.isNull())
@@ -503,10 +670,12 @@ void UIYabause::sizeRequested( const QSize& s )
 		height += toolBar->height();
 
 	resize( width, height ); 
+*/
 }
 
 void UIYabause::fixAspectRatio( int width , int height )
 {
+#if 0
   if (this->isFullScreen()) {
     mYabauseGL->viewport_width_ = QtYabause::volatileSettings()->value("Video/FullscreenWidth", "1920").toInt();
     mYabauseGL->viewport_height_ = QtYabause::volatileSettings()->value("Video/FullscreenHeight", "1080").toInt();
@@ -551,6 +720,7 @@ void UIYabause::fixAspectRatio( int width , int height )
       setMinimumSize(0, 0);
       break;
 	}
+#endif
 }
 
 void UIYabause::getSupportedResolutions()
@@ -620,6 +790,7 @@ int UIYabause::findBestVideoFreq( int width, int height, int bpp, int videoForma
 
 void UIYabause::toggleFullscreen( int width, int height, bool f, int videoFormat )
 {
+#if 0
 	// Make sure setting is valid
 	if (f && isResolutionValid( width, height, -1, -1 ) < 0)
 		return;
@@ -653,8 +824,8 @@ void UIYabause::toggleFullscreen( int width, int height, bool f, int videoFormat
 	} 
   else {
     ChangeDisplaySettings(NULL, 0);
-    toolBar->show();
-    menubar->show();
+    //toolBar->show();
+    //menubar->show();
 
     int title_height = (GetSystemMetrics(SM_CYFRAME) + GetSystemMetrics(SM_CYCAPTION) + GetSystemMetrics(SM_CXPADDEDBORDER));
     int title_width = GetSystemMetrics(SM_CXFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
@@ -676,100 +847,130 @@ void UIYabause::toggleFullscreen( int width, int height, bool f, int videoFormat
 		ScreenRestoreResolution();
 	}
 #endif
+#endif
+}
+
+void UIYabause::toggleMenuAndToolBar() {
+	isAltPressed = !isAltPressed;
+
+	if (isFullScreen()) {
+		if (isAltPressed) {
+			//menubar->show();
+			//toolBar->show();
+			menuBar()->show();
+			for (QToolBar* toolBar : findChildren<QToolBar*>()) {
+				toolBar->show();
+			}
+		}
+		else {
+			//menubar->hide();
+			//toolBar->hide();
+			menuBar()->hide();
+			for (QToolBar* toolBar : findChildren<QToolBar*>()) {
+				toolBar->hide();
+			}
+		}
+	}
 }
 
 void UIYabause::fullscreenRequested( bool f )
 {
-  mYabauseGL->setFullscren(f);
 
-	if ( isFullScreen() && !f )
-	{
-#ifdef USE_UNIFIED_TITLE_TOOLBAR
-		setUnifiedTitleAndToolBarOnMac( true );
-#endif
-		toggleFullscreen(0, 0, false, -1 );
+	if (!f) {
 		showNormal();
-
-		VolatileSettings* vs = QtYabause::volatileSettings();
-		int menubarHide = vs->value( "View/Menubar" ).toInt();
-		if ( menubarHide == BD_HIDEFS ||
-			  menubarHide == BD_SHOWONFSHOVER)
-			menubar->show();
-		if ( vs->value( "View/Toolbar" ).toInt() == BD_HIDEFS )
+		isAltPressed = false;
+		//toolBar->show();
+		//menubar->show();
+		menuBar()->show();
+		for (QToolBar* toolBar : findChildren<QToolBar*>()) {
 			toolBar->show();
-
-		setCursor(Qt::ArrowCursor);
-		hideMouseTimer->stop();
+		}
+		restoreResolution();
 	}
-	else if ( !isFullScreen() && f )
-	{
-#ifdef USE_UNIFIED_TITLE_TOOLBAR
-		setUnifiedTitleAndToolBarOnMac( false );
-#endif
-		VolatileSettings* vs = QtYabause::volatileSettings();
-
-		setMaximumSize( QWIDGETSIZE_MAX, QWIDGETSIZE_MAX );
-		setMinimumSize( 0,0 );
-		//QPoint ps;
-		//ps.setX(0);
-		//ps.setY(0);
-		//this->move(ps);
-
-		toggleFullscreen(vs->value("Video/FullscreenWidth","1920").toInt(), vs->value("Video/FullscreenHeight", "1080").toInt(),
-						f, vs->value("Video/VideoFormat").toInt());
-
-		showFullScreen();
-
-		//if ( vs->value( "View/Menubar" ).toInt() == BD_HIDEFS ) // I don't know why this code is needed, so just comment out
-			menubar->hide();
-		//if ( vs->value( "View/Toolbar" ).toInt() == BD_HIDEFS ) // I don't know why this code is needed, so just comment out
+	else {
+		isAltPressed = false;
+	  originalGeometry = geometry();
+		saveCurrentResolution();
+		//toolBar->hide();
+		//menubar->hide();
+		menuBar()->hide();
+		for (QToolBar* toolBar : findChildren<QToolBar*>()) {
 			toolBar->hide();
-
-		hideMouseTimer->start(3 * 1000);
-
+		}
+		VolatileSettings* vs = QtYabause::volatileSettings();
+		setResolution(vs->value("Video/FullscreenWidth", "1920").toInt(), vs->value("Video/FullscreenHeight", "1080").toInt()); 
+		showFullScreen();
 	}
-	if ( aViewFullscreen->isChecked() != f )
-		aViewFullscreen->setChecked( f );
-	aViewFullscreen->setIcon( QIcon( f ? ":/actions/no_fullscreen.png" : ":/actions/fullscreen.png" ) );
+
 }
+
+void UIYabause::saveCurrentResolution() {
+	EnumDisplaySettings(nullptr, ENUM_CURRENT_SETTINGS, &originalMode);
+}
+
+void UIYabause::restoreResolution() {
+	ChangeDisplaySettings(&originalMode, 0);
+}
+
+void UIYabause::setResolution(int width, int height) {
+
+	QList<QScreen*> screens = QGuiApplication::screens();
+	QScreen* targetScreen = screens[0];
+	windowHandle()->setScreen(targetScreen);
+
+	DEVMODE mode = originalMode;
+	mode.dmPelsWidth = width;
+	mode.dmPelsHeight = height;
+	mode.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT;
+	ChangeDisplaySettingsEx(targetScreen->name().toStdWString().c_str(), &mode, NULL, CDS_FULLSCREEN, NULL );
+}
+
 
 void UIYabause::refreshStatesActions()
 {
 	// reset save actions
-	foreach ( QAction* a, findChildren<QAction*>( QRegExp( "aFileSaveState*" ) ) )
-	{
-		if ( a == aFileSaveStateAs )
-			continue;
-		int i = a->objectName().remove( "aFileSaveState" ).toInt();
-		a->setText( QString( "%1 ... " ).arg( i ) );
-		a->setToolTip( a->text() );
-		a->setStatusTip( a->text() );
-		a->setData( i );
+	QRegularExpression saveStateRegex("^aFileSaveState\\d+$");
+	for (QAction* a : findChildren<QAction*>()) {
+		if (saveStateRegex.match(a->objectName()).hasMatch()) {
+			if (a == aFileSaveStateAs)
+				continue;
+			int i = a->objectName().remove("aFileSaveState").toInt();
+			a->setText(QString("%1 ... ").arg(i));
+			a->setToolTip(a->text());
+			a->setStatusTip(a->text());
+			a->setData(i);
+		}
 	}
+
 	// reset load actions
-	foreach ( QAction* a, findChildren<QAction*>( QRegExp( "aFileLoadState*" ) ) )
-	{
-		if ( a == aFileLoadStateAs )
-			continue;
-		int i = a->objectName().remove( "aFileLoadState" ).toInt();
-		a->setText( QString( "%1 ... " ).arg( i ) );
-		a->setToolTip( a->text() );
-		a->setStatusTip( a->text() );
-		a->setData( i );
-		a->setEnabled( false );
+	QRegularExpression loadStateRegex("^aFileLoadState\\d+$");
+	for (QAction* a : findChildren<QAction*>()) {
+		if (loadStateRegex.match(a->objectName()).hasMatch()) {
+			if (a == aFileLoadStateAs)
+				continue;
+			int i = a->objectName().remove("aFileLoadState").toInt();
+			a->setText(QString("%1 ... ").arg(i));
+			a->setToolTip(a->text());
+			a->setStatusTip(a->text());
+			a->setData(i);
+			a->setEnabled(false);
+		}
 	}
 	// get states files of this game
 	const QString serial = QtYabause::getCurrentCdSerial();
 	const QString mask = QString( "%1_*.yss" ).arg( serial );
 	const QString statesPath = QtYabause::volatileSettings()->value( "General/SaveStates", getDataDirPath() ).toString();
-	QRegExp rx( QString( mask ).replace( '*', "(\\d+)") );
+	QRegularExpression rx(QString(mask).replace('*', "(\\d+)"));
 	QDir d( statesPath );
 	foreach ( const QFileInfo& fi, d.entryInfoList( QStringList( mask ), QDir::Files | QDir::Readable, QDir::Name | QDir::IgnoreCase ) )
 	{
-		if ( rx.exactMatch( fi.fileName() ) )
+		QRegularExpressionMatch match = rx.match(fi.fileName());
+		if (match.hasMatch())
 		{
-			int slot = rx.capturedTexts().value( 1 ).toInt();
-			const QString caption = QString( "%1 %2 " ).arg( slot ).arg( fi.lastModified().toString( Qt::SystemLocaleDate ) );
+			int slot = match.captured(1).toInt();
+			const QString caption = QString("%1 %2")
+				.arg(slot)
+				.arg(QLocale().toString(fi.lastModified(), QLocale::ShortFormat));
 			// update save state action
 			if ( QAction* a = findChild<QAction*>( QString( "aFileSaveState%1" ).arg( slot ) ) )
 			{
@@ -803,7 +1004,7 @@ void UIYabause::on_aFileSettings_triggered()
 		aEmulationFrameSkipLimiter->setChecked( vs->value( "General/EnableFrameSkipLimiter" ).toBool() );
 		aViewFPS->setChecked( vs->value( "General/ShowFPS" ).toBool() );
 		mouseSensitivity = vs->value( "Input/GunMouseSensitivity" ).toInt();
-		
+#if 0
 		if(isFullScreen())
 		{
 			if ( vs->value( "View/Menubar" ).toInt() == BD_HIDEFS || vs->value( "View/Menubar" ).toInt() == BD_ALWAYSHIDE )
@@ -828,7 +1029,7 @@ void UIYabause::on_aFileSettings_triggered()
 			else
 				toolBar->show();
 		}
-
+#endif
 		
 		//only reset if bios, region, cart,  back up, mpeg, sh2, m68k are changed
 		Settings *ss = (QtYabause::settings());
@@ -849,7 +1050,8 @@ void UIYabause::on_aFileSettings_triggered()
 			newhash["General/CdRomISO"]!=hash["General/CdRomISO"] ||
 		        newhash["General/SystemLanguageID"]!=hash["General/SystemLanguageID"] ||
 			newhash["General/ClockSync"]!=hash["General/ClockSync"] ||
-			newhash["General/FixedBaseTime"]!=hash["General/FixedBaseTime"]
+			newhash["General/FixedBaseTime"]!=hash["General/FixedBaseTime"] ||
+      newhash["General/UseSh2Cache"] != hash["General/UseSh2Cache"]
 		)
 		{
 			if ( mYabauseThread->pauseEmulation( true, true ) )
@@ -919,6 +1121,11 @@ void UIYabause::on_aFileSettings_triggered()
     VideoSetSetting(VDP_SETTING_POLYGON_MODE, newhash["Video/polygon_generation_mode"].toInt());
   }
 
+  if (newhash["General/EmulationSpeed"] != hash["General/EmulationSpeed"]) {
+    VDP2SetFrameLimit(newhash["General/EmulationSpeed"].toInt());
+  }
+
+  
 
 		if (newhash["Video/FullscreenWidth"] != hash["Video/FullscreenWidth"] || 
 			newhash["Video/FullscreenHeight"] != hash["Video/FullscreenHeight"] ||
@@ -969,6 +1176,26 @@ void UIYabause::on_actionOpen_Tray_triggered()
 	}
 }
 
+void UIYabause::on_actionGame_Browser_triggered() {
+	YabauseLocker locker(mYabauseThread);
+
+	if (mStackedWidget->currentWidget() == mFileSearch) {
+		VolatileSettings* vs = QtYabause::volatileSettings();
+		int vidcoretype = vs->value("Video/VideoCore").toInt();
+		if (vidcoretype == VIDCORE_VULKAN) {
+			mStackedWidget->setCurrentWidget(mYabVulkanWidget);
+		}
+		else {
+			mStackedWidget->setCurrentWidget(mYabauseGL);
+		}
+	}
+	else {
+		mStackedWidget->setCurrentWidget(mFileSearch);
+	}
+
+}
+
+
 void UIYabause::on_aFileOpenISO_triggered()
 {
 	YabauseLocker locker( mYabauseThread );
@@ -990,10 +1217,27 @@ void UIYabause::on_aFileOpenISO_triggered()
 		vs->setValue( "General/CdRom", ISOCD.id );
 		vs->setValue( "General/CdRomISO", fn );
     vs->setValue("General/PlaySSF", false);
-		
-		mYabauseThread->pauseEmulation( false, true );
-		
+
+		int vidcoretype = vs->value("Video/VideoCore").toInt();
+		if (vidcoretype == VIDCORE_VULKAN) {
+			mStackedWidget->setCurrentWidget(mYabVulkanWidget);
+			mYabVulkanWidget->show();
+			mYabauseThread->pauseEmulation(false, true, [&]() {
+				mYabVulkanWidget->setYabauseThread(mYabauseThread);
+			});
+
+			mYabVulkanWidget->update();
+		}
+		else {
+			mStackedWidget->setCurrentWidget(mYabauseGL);
+			mYabauseGL->setYabauseThread(mYabauseThread);
+			mYabauseGL->makeCurrent();
+			mYabauseThread->pauseEmulation(false, true);
+			mYabauseGL->update();
+		}
+
 		refreshStatesActions();
+
 	}
 }
 
@@ -1016,9 +1260,23 @@ void UIYabause::on_aFileOpenSSF_triggered()
       vs->setValue("General/SSFPath", fn);
       vs->setValue("General/PlaySSF", true);
 
-      mYabauseThread->pauseEmulation(false, true);
-
-      refreshStatesActions();
+			int vidcoretype = vs->value("Video/VideoCore").toInt();
+			if (vidcoretype == VIDCORE_VULKAN) {
+				mStackedWidget->setCurrentWidget(mYabVulkanWidget);
+				mYabVulkanWidget->show();
+				mYabauseThread->pauseEmulation(false, true, [&]() {
+					mYabVulkanWidget->setYabauseThread(mYabauseThread);
+				});
+				mYabVulkanWidget->update();
+			}
+			else {
+				mStackedWidget->setCurrentWidget(mYabauseGL);
+				mYabauseGL->setYabauseThread(mYabauseThread);
+				mYabauseGL->makeCurrent();
+				mYabauseThread->pauseEmulation(false, true);
+				mYabauseGL->update();
+			}
+			refreshStatesActions();
    }
 }
 
@@ -1043,9 +1301,25 @@ void UIYabause::on_aFileOpenCDRom_triggered()
 		vs->setValue( "General/CdRomISO", fn );
       vs->setValue("General/PlaySSF", false);
 
-		mYabauseThread->pauseEmulation( false, true );
+			int vidcoretype = vs->value("Video/VideoCore").toInt();
+			if (vidcoretype == VIDCORE_VULKAN) {
+				mStackedWidget->setCurrentWidget(mYabVulkanWidget);
+				mYabVulkanWidget->show();
+				mYabauseThread->pauseEmulation(false, true, [&]() {
+					mYabVulkanWidget->setYabauseThread(mYabauseThread);
+				});
+				mYabVulkanWidget->update();
+			}
+			else {
+				mStackedWidget->setCurrentWidget(mYabauseGL);
+				mYabauseGL->setYabauseThread(mYabauseThread);
+				mYabauseGL->makeCurrent();
+				mYabauseThread->pauseEmulation(false, true);
+				mYabauseGL->update();
+			}
 
 		refreshStatesActions();
+
 	}
 }
 
@@ -1093,20 +1367,44 @@ void UIYabause::on_aFileLoadStateAs_triggered()
 
 void UIYabause::takeScreenshot(const char * fname) {
   YabauseLocker locker(mYabauseThread);
-  QImage screenshot = mYabauseGL->grabFrameBuffer();
-  QImageWriter iw(fname);
-  iw.write(screenshot);
+
+	VolatileSettings* vs = QtYabause::volatileSettings();
+	int vidcoretype = vs->value("Video/VideoCore").toInt();
+	if (vidcoretype == VIDCORE_VULKAN) {
+		// TODO
+	}
+	else {
+		QImage screenshot = mYabauseGL->grabFramebuffer();
+		QImageWriter iw(fname);
+		iw.write(screenshot);
+	}
+  
 }
+
+
+
+void UIYabause::on_aFileAndroid_triggered() {
+	on_actionAndroid_triggered();
+}
+
+void UIYabause::on_aFileiOS_triggered() {
+	on_actioniOS_triggered();
+}
+
 
 void UIYabause::on_aFileScreenshot_triggered()
 {
+	if (VIDCore && VIDCore->id == VIDCORE_VULKAN) {
+		// TODO
+		return;
+	}
+
   PlayRecorder * p = PlayRecorder::getInstance();
   if (p->getStatus() == 0) {
     p->takeShot();
     return;
   }
   
-	YabauseLocker locker( mYabauseThread );
 	// images filter that qt can write
 	QStringList filters;
 	foreach ( QByteArray ba, QImageWriter::supportedImageFormats() )
@@ -1119,8 +1417,14 @@ void UIYabause::on_aFileScreenshot_triggered()
 	glReadBuffer(GL_FRONT);
 #endif
 
+	QImage screenshot;
 	// take screenshot of gl view
-	QImage screenshot = mYabauseGL->grabFrameBuffer();
+	if (VIDCore && VIDCore->id == VIDCORE_OGL) {
+		screenshot = mYabauseGL->grabFramebuffer();
+	}
+
+
+	YabauseLocker locker(mYabauseThread);
 	
 	// request a file to save to to user
 	QString s = CommonDialogs::getSaveFileName( QString(), QtYabause::translate( "Choose a location for your screenshot" ), filters.join( ";;" ) );
@@ -1146,7 +1450,20 @@ void UIYabause::on_aFileQuit_triggered()
 
 void UIYabause::on_aEmulationRun_triggered()
 {
-	mYabauseGL->makeCurrent();
+	VolatileSettings* vs = QtYabause::volatileSettings();
+	int vidcoretype = vs->value("Video/VideoCore").toInt();
+	if (vidcoretype == VIDCORE_VULKAN) {
+		mStackedWidget->setCurrentWidget(mYabVulkanWidget);
+    mYabVulkanWidget->setYabauseThread(mYabauseThread);
+		mYabVulkanWidget->show();
+		mYabVulkanWidget->update();
+	}
+	else {
+		mStackedWidget->setCurrentWidget(mYabauseGL);
+		mYabauseGL->setYabauseThread(mYabauseThread);
+		mYabauseGL->makeCurrent();
+		mYabauseGL->update();
+	}
 
 	if ( mYabauseThread->emulationPaused() )
 	{
@@ -1155,6 +1472,7 @@ void UIYabause::on_aEmulationRun_triggered()
 		if (isFullScreen())
 			hideMouseTimer->start(3 * 1000);
 	}
+	
 }
 
 void UIYabause::on_actionRecord_triggered() {
@@ -1205,6 +1523,13 @@ void UIYabause::on_aEmulationPause_triggered()
 {
 	if ( !mYabauseThread->emulationPaused() )
 		mYabauseThread->pauseEmulation( true, false );
+
+	if (VIDCore && VIDCore->id == VIDCORE_VULKAN) {
+    mYabVulkanWidget->update();
+	}else{
+		mYabauseGL->update();
+	}
+	
 }
 
 void UIYabause::on_aEmulationReset_triggered()
@@ -1397,7 +1722,6 @@ void UIYabause::on_actionOpen_web_interface_triggered() {
   //QDesktopServices::openUrl(QUrl(actionOpen_web_interface->statusTip()));
   YabauseLocker locker( mYabauseThread );
   WebLoginWindow( window() ).exec();
-	mYabauseGL->makeCurrent();
 }
 
 void UIYabause::on_aHelpReport_triggered()
@@ -1414,12 +1738,6 @@ void UIYabause::on_aHelpAbout_triggered()
   UIAbout(window()).exec();
 }
 
-void UIYabause::on_actionDonate_triggered()
-{
-  QUrl url("https://liberapay.com/~32349/donate");
-  QDesktopServices::openUrl(url);
-
-}
 
 void UIYabause::on_aSound_triggered()
 {
@@ -1473,23 +1791,35 @@ void UIYabause::on_cbVideoDriver_currentIndexChanged( int id )
 	VideoInterface_struct* core = QtYabause::getVDICore( cbVideoDriver->itemData( id ).toInt() );
 	if ( core )
 	{
-		if ( VideoChangeCore( core->id ) == 0 )
-			mYabauseGL->updateView();
+		if (VideoChangeCore(core->id) == 0) {
+			//mYabauseGL->updateView();
+		}
 	}
 }
 
 void UIYabause::pause( bool paused )
 {
-	mYabauseGL->updateView();
-	
 	aEmulationRun->setEnabled( paused );
 	aEmulationPause->setEnabled( !paused );
 	aEmulationReset->setEnabled( !paused );
+	if (VIDCore && VIDCore->id == VIDCORE_OGL) {
+		mYabauseGL->updateView();
+		mYabauseGL->update();
+	}else	if (VIDCore && VIDCore->id == VIDCORE_VULKAN) {
+		mYabVulkanWidget->updateView();
+		mYabVulkanWidget->update();
+	}
 }
 
 void UIYabause::reset()
 {
-	mYabauseGL->updateView();
+	if (VIDCore && VIDCore->id == VIDCORE_OGL) {
+		mYabauseGL->updateView();
+		mYabauseGL->update();
+	}else	if (VIDCore && VIDCore->id == VIDCORE_VULKAN) {
+		mYabVulkanWidget->updateView();
+		mYabVulkanWidget->update();
+	}
 }
 
 void UIYabause::toggleEmulateMouse( bool enable )
@@ -1514,12 +1844,23 @@ const int CHUNK = 16384;
 #include <fstream>
 #include <cstdio>
 
+void UIYabause::on_actionAndroid_triggered() {
+	QUrl url("https://play.google.com/store/apps/details?id=org.devmiyax.yabasanshioro2.pro");
+	QDesktopServices::openUrl(url);
+}
+
+void UIYabause::on_actioniOS_triggered() {
+	QUrl url("https://apps.apple.com/jp/app/yaba-sanshiro-2/id1549144351");
+	QDesktopServices::openUrl(url);
+}
+
+
 void UIYabause::on_actionTo_Cloud_triggered()
 {
   YabauseLocker locker(mYabauseThread);
   firebase::auth::Auth *auth = firebase::auth::Auth::GetAuth(UIYabause::getFirebaseApp());
-  firebase::auth::User *user = auth->current_user();
-  if (user == nullptr) {
+  firebase::auth::User user = auth->current_user();
+  if (!user.is_valid()) {
     return;
   }
 
@@ -1535,7 +1876,7 @@ void UIYabause::on_actionTo_Cloud_triggered()
   
   Storage *storage = Storage::GetInstance(UIYabause::getFirebaseApp(), "gs://uoyabause.appspot.com");
   StorageReference storage_ref = storage->GetReference();
-  StorageReference base = storage_ref.Child(user->uid());
+  StorageReference base = storage_ref.Child(user.uid());
   StorageReference backup = base.Child("state");
   StorageReference fileref;
   fileref = backup.Child(gamecode);
@@ -1567,8 +1908,8 @@ void UIYabause::on_actionTo_Cloud_triggered()
 void UIYabause::on_actionFrom_Cloud_triggered()
 {
   firebase::auth::Auth *auth = firebase::auth::Auth::GetAuth(UIYabause::getFirebaseApp());
-  firebase::auth::User *user = auth->current_user();
-  if (user == nullptr) {
+  firebase::auth::User user = auth->current_user();
+  if (!user.is_valid()) {
     return;
   }
 
@@ -1580,7 +1921,7 @@ void UIYabause::on_actionFrom_Cloud_triggered()
 
   Storage *storage = Storage::GetInstance(UIYabause::getFirebaseApp(), "gs://uoyabause.appspot.com");
   StorageReference storage_ref = storage->GetReference();
-  StorageReference base = storage_ref.Child(user->uid());
+  StorageReference base = storage_ref.Child(user.uid());
   StorageReference backup = base.Child("state");
   StorageReference fileref;
   fileref = backup.Child(gamecode);

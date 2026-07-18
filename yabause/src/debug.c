@@ -48,10 +48,16 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 #include <string.h>
 
 #include "osdcore.h"
+#include "threads.h"
 
 //////////////////////////////////////////////////////////////////////////////
 
+YabMutex * dbugMutex = NULL;
+
 Debug * DebugInit(const char * n, DebugOutType t, char * s) {
+
+  dbugMutex = YabThreadCreateMutex();
+
 	Debug * d;
 
         if ((d = (Debug *) malloc(sizeof(Debug))) == NULL)
@@ -170,8 +176,10 @@ void DebugPrintf(Debug * d, const char * file, u32 line, const char * format, ..
   case DEBUG_STREAM:
     if (d->output.stream == NULL)
       break;
-    fprintf(d->output.stream, "%s (%s:%ld): ", d->name, file, (long)line);
+    //fprintf(d->output.stream, "%s (%s:%ld): ", d->name, file, (long)line);
     vfprintf(d->output.stream, format, l);
+    printf("\n");
+ 
     break;
   case DEBUG_STRING:
     {
@@ -185,19 +193,21 @@ void DebugPrintf(Debug * d, const char * file, u32 line, const char * format, ..
     break;
   case DEBUG_CALLBACK:
     {
+
+    
       int i=0;
       int strnewhash = 0;
-#ifdef _WINDOWS
+#if !defined(ANDROID)
       static FILE * dfp = NULL;
+      YabThreadLock(dbugMutex);
       if (dfp == NULL){
-        dfp = fopen("debug.txt", "w");
+        dfp = fopen_utf8("debug.txt", "w");
       }
-#endif
-#ifdef ANDROID
-      static FILE * dfp = NULL;
-      if (dfp == NULL){
-        dfp = fopen("/mnt/sdcard/debug.txt", "w");
-      }
+#else
+//      static FILE * dfp = NULL;
+//      if (dfp == NULL){
+//       dfp = fopen("/mnt/sdcard/debug.txt", "w");
+//      }
 #endif
       //i = sprintf(strtmp, "%s (%s:%ld): ", d->name, file, (long)line);
       i += vsprintf(strtmp + i, format, l);
@@ -206,16 +216,17 @@ void DebugPrintf(Debug * d, const char * file, u32 line, const char * format, ..
         //OutputDebugString(strtmp);
         //d->output.callback(strtmp);
         OSDAddLogString(strtmp);
-#if defined(ANDROID) 
+#if !defined(ANDROID)
         fprintf(dfp, "%s\n",strtmp);
         fflush(dfp);
-#endif
-#if defined(_WINDOWS)
-        fprintf(dfp, "%s\n",strtmp);
-        fflush(dfp);
+#else        
+        yprintf("%s",strtmp);
+//        fprintf(dfp, "%s\n",strtmp);
+ //       fflush(dfp);
 #endif
       //}
       //strhash = strnewhash;
+      YabThreadUnLock(dbugMutex);
     }
     break;
   }

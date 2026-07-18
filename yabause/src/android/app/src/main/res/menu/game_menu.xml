@@ -36,9 +36,10 @@
 
 
     <item
-        android:id="@+id/menu_item_cheat"
+        android:id="@+id/menu_item_acp"
         android:icon="@drawable/ic_lock_black_24dp"
-        android:title="@string/menu_cheat" />
+        android:title="@string/menu_acp" />
+
 
     <group
         android:id="@+id/menu_other" >
@@ -54,7 +55,7 @@
             android:id="@+id/menu_item_backup"
             android:icon="@drawable/ic_save_black_24dp"
             android:title="@string/memory_manager" />
-
+<!--
         <item
             android:id="@+id/save_state_cloud"
             android:icon="@drawable/ic_cloud_upload_black_24dp"
@@ -66,7 +67,7 @@
             android:icon="@drawable/ic_cloud_download_black_24dp"
             android:title="@string/menu_load_state_cloud"
             android:visible="true" />
-
+-->
         -
         <item
             android:id="@+id/save_state"
@@ -89,15 +90,20 @@
             android:visible="true" />
 
     </group>
-
+<!--
     <item android:id="@+id/gametitle"
         android:icon="@drawable/ic_screen_share_black_24dp"
         android:title="@string/menu_set_as_gametitle" />
-
+-->
 
     <item android:id="@+id/report"
         android:icon="@drawable/ic_send_black_24dp"
         android:title="@string/menu_report" />
+
+    <item
+        android:id="@+id/menu_leaderboard"
+        android:icon="@drawable/ic_leaderboard_black_24dp"
+        android:title="@string/menu_leaderboard" />
 
 
     <item android:title="Player1">

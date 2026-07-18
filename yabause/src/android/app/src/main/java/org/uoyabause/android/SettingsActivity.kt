@@ -1,0 +1,782 @@
+package org.uoyabause.android
+
+import android.app.ActivityManager
+import android.app.AlertDialog
+import android.app.Dialog
+import android.util.Log
+import android.content.Context
+import android.content.Intent
+import android.content.SharedPreferences
+import android.content.SharedPreferences.OnSharedPreferenceChangeListener
+import android.content.pm.PackageManager
+import android.hardware.input.InputManager
+import android.os.Build
+import android.os.Bundle
+import android.os.storage.StorageManager
+import android.os.storage.StorageVolume
+import android.text.InputType
+import android.widget.Toast
+import androidx.annotation.RequiresApi
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat.getSystemService
+import androidx.fragment.app.DialogFragment
+import androidx.lifecycle.lifecycleScope
+import androidx.preference.CheckBoxPreference
+import androidx.preference.EditTextPreference
+import androidx.preference.ListPreference
+import androidx.preference.Preference
+import androidx.preference.PreferenceCategory
+import androidx.preference.PreferenceFragmentCompat
+import androidx.preference.PreferenceManager
+import androidx.preference.PreferenceScreen
+import com.firebase.ui.auth.AuthUI
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.storage.FirebaseStorage
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
+import java.util.ArrayList
+import org.devmiyax.yabasanshiro.BuildConfig
+import org.devmiyax.yabasanshiro.R
+import org.uoyabause.android.YabauseStorage.Companion.storage
+import org.uoyabause.android.auth.DiscordLinkActivity
+import org.uoyabause.android.GameSelectPresenter
+import org.uoyabause.android.ShowPinInFragment
+import org.uoyabause.android.tv.GameSelectFragment
+
+class SettingsActivity : AppCompatActivity() {
+
+    class WarningDialogFragment : DialogFragment() {
+        override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
+            // Use the Builder class for convenient dialog construction
+            val builder = AlertDialog.Builder(requireActivity())
+            val res = resources
+            builder.setMessage(res.getString(R.string.msg_opengl_not_supported))
+                .setPositiveButton("OK") { _, _ ->
+                    // FIRE ZE MISSILES!
+                }
+
+            // Create the AlertDialog object and return it
+            return builder.create()
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.settings_activity)
+        supportFragmentManager
+            .beginTransaction()
+            .replace(R.id.settings, SettingsFragment())
+            .commit()
+        supportActionBar?.setDisplayHomeAsUpEnabled(true)
+    }
+
+    class SettingsFragment : PreferenceFragmentCompat(),
+        InputManager.InputDeviceListener,
+        OnSharedPreferenceChangeListener,
+        GameDirectoriesDialogPreference.DirListChangeListener {
+        private val DIALOG_FRAGMENT_TAG = "CustomPreference"
+        var inputManager: InputManager? = null
+        var dirlist_status = false
+        var restart_level = 0
+
+        override fun onResume() {
+            super.onResume()
+            inputManager?.registerInputDeviceListener(this, null)
+            preferenceScreen.sharedPreferences
+                .registerOnSharedPreferenceChangeListener(this)
+        }
+
+        override fun onPause() {
+            super.onPause()
+            inputManager?.unregisterInputDeviceListener(this)
+            preferenceScreen.sharedPreferences
+                .unregisterOnSharedPreferenceChangeListener(this)
+        }
+
+        override fun onDestroy() {
+            super.onDestroy()
+        }
+
+        /**
+         * Set up account preferences
+         */
+        private fun setupAccountPreferences() {
+            // Set up Discord link preference
+            val discordLinkPref = findPreference("pref_discord_link") as Preference?
+            discordLinkPref?.onPreferenceClickListener = Preference.OnPreferenceClickListener {
+                val intent = Intent(requireContext(), DiscordLinkActivity::class.java)
+                startActivity(intent)
+                true
+            }
+
+            // Set up login to other devices preference
+            val loginToOtherPref = findPreference("pref_login_to_other") as Preference?
+            loginToOtherPref?.onPreferenceClickListener = Preference.OnPreferenceClickListener {
+                //val presenter = GameSelectPresenter(this@SettingsFragment, null)
+                ShowPinInFragment.newInstance().show(parentFragmentManager, "pin_dialog")
+                true
+            }
+
+            // Set up delete account preference
+            val deleteAccountPref = findPreference("pref_delete_account") as Preference?
+            deleteAccountPref?.isEnabled = FirebaseAuth.getInstance().currentUser != null
+            deleteAccountPref?.onPreferenceClickListener = Preference.OnPreferenceClickListener {
+                showDeleteAccountConfirmation()
+                true
+            }
+        }
+
+        /**
+         * Show confirmation dialog for account deletion
+         */
+        private fun showDeleteAccountConfirmation() {
+            val currentUser = FirebaseAuth.getInstance().currentUser
+            if (currentUser == null) {
+                Toast.makeText(
+                    requireContext(),
+                    "You must be signed in to delete your account",
+                    Toast.LENGTH_SHORT
+                ).show()
+                return
+            }
+
+            AlertDialog.Builder(requireContext())
+                .setTitle(R.string.delete_account_confirmation_title)
+                .setMessage(R.string.delete_account_confirmation_message)
+                .setPositiveButton(R.string.yes) { _, _ ->
+                    deleteUserAccount()
+                }
+                .setNegativeButton(R.string.no, null)
+                .show()
+        }
+
+        /**
+         * Delete user account and all associated data
+         */
+        private fun deleteUserAccount() {
+            val currentUser = FirebaseAuth.getInstance().currentUser ?: return
+            val userId = currentUser.uid
+
+            lifecycleScope.launch {
+                try {
+                    val db = FirebaseFirestore.getInstance()
+
+                    // 1. Delete user data from Realtime Database
+                    deleteUserDataFromDatabase(userId)
+
+                    // 2. Delete user data from Firestore: users collection
+                    // Note: delete() does not throw an error if the document doesn't exist.
+                    val userDocRef = db.collection("users").document(userId)
+                    userDocRef.delete().await()
+                    Log.d("SettingsActivity", "Attempted Firestore document deletion: users/$userId") // Log attempt
+
+                    // 3. Delete user data from Firestore: discord_links collection
+                    // Note: delete() does not throw an error if the document doesn't exist.
+                    val discordLinkDocRef = db.collection("discord_links").document(userId)
+                    discordLinkDocRef.delete().await()
+                    Log.d("SettingsActivity", "Attempted Firestore document deletion: discord_links/$userId") // Log attempt
+
+                    // 4. Delete user files from Storage
+                    deleteUserFilesFromStorage(userId)
+
+                    // 5. Delete the user account
+                    currentUser.delete().await()
+
+                    // 6. Sign out
+                    AuthUI.getInstance().signOut(requireContext())
+
+                    // 7. Show success message
+                    Toast.makeText(
+                        requireContext(),
+                        R.string.account_deleted,
+                        Toast.LENGTH_SHORT
+                    ).show()
+
+                    // 8. Update UI
+                    findPreference<Preference>("pref_delete_account")?.isEnabled = false
+
+                } catch (e: Exception) {
+                    Log.e("SettingsActivity", "Error deleting user account", e)
+                    // Show error message
+                    Toast.makeText(
+                        requireContext(),
+                        "${getString(R.string.account_deletion_failed)}: ${e.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+
+
+        private suspend fun deleteUserDataFromDatabase(userId: String) {
+            // Realtimedatabaseにある "/user-posts/{userId}" にある全データを削除
+            val baseurl = "/user-posts/$userId" // Use string template for clarity
+            val database = FirebaseDatabase.getInstance()
+            val userPostsRef = database.getReference(baseurl)
+
+            try {
+                userPostsRef.removeValue().await() // Use await() for suspend function
+                // Optionally log success or perform other actions
+                Log.d("SettingsActivity", "Successfully deleted data for user: $userId at path $baseurl")
+            } catch (e: Exception) {
+                // Handle potential errors during deletion
+                Log.e("SettingsActivity", "Error deleting data for user: $userId at path $baseurl", e)
+                // Rethrow or handle the error as appropriate for the application context
+                // Consider showing an error message to the user
+                throw e // Re-throw the exception if the caller needs to handle it
+            }
+        }
+
+        /**
+         * Delete user files from Firebase Storage
+         */
+        private suspend fun deleteUserFilesFromStorage(userId: String) {
+            val storage = FirebaseStorage.getInstance()
+
+            try {
+                // List all files in the user's directory
+                val listResult = storage.reference.child(userId).listAll().await()
+
+                // Delete each item
+                for (item in listResult.items) {
+                    item.delete().await()
+                }
+
+                // Recursively delete each prefix (subdirectory)
+                for (prefix in listResult.prefixes) {
+                    deleteStorageDirectory(prefix.path)
+                }
+            } catch (e: Exception) {
+                // Log error but continue
+                Log.e("SettingsActivity", "Error deleting storage files: ${e.message}")
+            }
+        }
+
+        /**
+         * Recursively delete a directory in Firebase Storage
+         */
+        private suspend fun deleteStorageDirectory(path: String) {
+            val storage = FirebaseStorage.getInstance()
+
+            try {
+                val listResult = storage.reference.child(path).listAll().await()
+
+                // Delete each item
+                for (item in listResult.items) {
+                    item.delete().await()
+                }
+
+                // Recursively delete each prefix
+                for (prefix in listResult.prefixes) {
+                    deleteStorageDirectory(prefix.path)
+                }
+            } catch (e: Exception) {
+                // Log error but continue
+                Log.e("SettingsActivity", "Error deleting storage directory: ${e.message}")
+            }
+        }
+
+        fun setUpInstall() {
+
+            val prefs: SharedPreferences? = YabauseApplication.appContext.getSharedPreferences("private", Context.MODE_PRIVATE)
+            if (prefs != null) {
+                var hasDonated = prefs.getBoolean("donated", false)
+                if (BuildConfig.BUILD_TYPE == "pro" || hasDonated) {
+                    return
+                }
+
+                val preferenceCategory = findPreference("game_select_screen") as PreferenceCategory?
+                val preference = Preference(preferenceScreen.context)
+                preference.title = getString(R.string.remaining_installation_count)
+                val count = prefs.getInt("InstallCount", 3)
+                preference.summary = count.toString()
+                preferenceCategory?.addPreference(preference)
+            }
+        }
+        override fun onInputDeviceAdded(id: Int) {
+            PadManager.updatePadManager()
+            syncInputDevice("player1")
+            syncInputDevice("player2")
+        }
+
+        override fun onInputDeviceRemoved(id: Int) {
+            PadManager.updatePadManager()
+            syncInputDevice("player1")
+            syncInputDevice("player2")
+        }
+
+        override fun onInputDeviceChanged(id: Int) {
+            PadManager.updatePadManager()
+            syncInputDevice("player1")
+            syncInputDevice("player2")
+        }
+
+        @RequiresApi(Build.VERSION_CODES.N)
+        override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
+            setPreferencesFromResource(R.xml.preferences, rootKey)
+
+            var dir = findPreference("pref_game_directory") as Preference?
+            if (dir != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            //    dir.isVisible = false
+            }
+
+            var installLocation = findPreference("pref_install_location") as ListPreference?
+            if (installLocation != null && Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                installLocation.isVisible = false
+            } else {
+
+                val labels: MutableList<CharSequence> = ArrayList()
+                val values: MutableList<CharSequence> = ArrayList()
+
+                val sm = requireActivity().getSystemService(STORAGE_SERVICE) as StorageManager
+                val map: Map<String, String> = when {
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> {
+                        // Android 11- (API 30)
+                        sm.storageVolumes.mapNotNull { volume ->
+                            val path = volume.directory?.absolutePath ?: return@mapNotNull null
+                            val label = volume.getDescription(requireActivity()) ?: return@mapNotNull null
+                            path to label
+                        }.toMap()
+                    }
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.N -> {
+                        // Android 7-10 (API 24-29)
+                        val getPath = StorageVolume::class.java.getDeclaredMethod("getPath")
+                        sm.storageVolumes.mapNotNull { volume ->
+                            val path = (getPath.invoke(volume) as String?) ?: return@mapNotNull null
+                            val label = volume.getDescription(requireActivity()) ?: return@mapNotNull null
+                            path to label
+                        }.toMap()
+                    }
+                    else -> {
+                        // Android 4-6 (API 14-23)
+                        val getVolumeList = sm.javaClass.getDeclaredMethod("getVolumeList")
+                        (getVolumeList.invoke(sm) as Array<*>).filterNotNull().mapNotNull { volume ->
+                            val getPath = volume.javaClass.getDeclaredMethod("getPath") ?: return@mapNotNull null
+                            val getLabel = volume.javaClass.getDeclaredMethod("getDescription", Context::class.java)
+                            val path = (getPath.invoke(volume) as String?) ?: return@mapNotNull null
+                            val label = (getLabel.invoke(volume, requireActivity()) as String?) ?: return@mapNotNull null
+                            path to label
+                        }.toMap()
+                    }
+                }
+
+                var index = 0
+                map.forEach() { _, label ->
+                    labels.add(label)
+                    values.add(index.toString())
+                    index++
+                }
+
+                installLocation!!.entries = labels.toTypedArray()
+                installLocation.entryValues = values.toTypedArray()
+                installLocation.summary = installLocation.entry
+            }
+
+            var inputsetting1 = findPreference("pref_player1_inputdef_file") as InputSettingPreference?
+            inputsetting1!!.setPlayerAndFilename(0, "keymap")
+            var inputsetting2 = findPreference("pref_player2_inputdef_file") as InputSettingPreference?
+            inputsetting2!!.setPlayerAndFilename(1, "keymap_player2")
+
+            val res = resources
+            val storage = storage
+
+            /* bios */
+            val p = preferenceManager.findPreference("pref_bios") as ListPreference?
+            if (p != null) {
+                val labels: MutableList<CharSequence> = ArrayList()
+                val values: MutableList<CharSequence> = ArrayList()
+                val biosFiles: Array<String?>? = storage.biosFiles
+                labels.add("built-in bios")
+                values.add("")
+                if (biosFiles != null && biosFiles.size > 0) {
+                    for (bios in biosFiles) {
+                        labels.add(bios!!)
+                        values.add(bios)
+                    }
+                    p.entries = labels.toTypedArray()
+                    p.entryValues = values.toTypedArray()
+                    p.summary = p.entry
+                } else {
+                    p.isEnabled = false
+                    p.summary = "built-in bios"
+                }
+            }
+
+            /* cartridge */
+            val cart =
+                preferenceManager.findPreference("pref_cart") as ListPreference?
+            if (cart != null) {
+                val cartlabels: MutableList<CharSequence> = ArrayList()
+                val cartvalues: MutableList<CharSequence> = ArrayList()
+
+                for (carttype in 0 until Cartridge.typeCount) {
+                    cartlabels.add(Cartridge.getName(carttype))
+                    cartvalues.add(Integer.toString(carttype))
+                }
+
+                cart.entries = cartlabels.toTypedArray() // cartentries
+                cart.entryValues = cartvalues.toTypedArray()
+                cart.summary = cart.entry
+            }
+
+            /* Cpu */
+            val cpu_setting =
+                preferenceManager.findPreference("pref_cpu") as ListPreference?
+            cpu_setting!!.summary = cpu_setting.entry
+            val abi = System.getProperty("os.arch")
+            if (abi?.contains("64") == true) {
+                val cpu_labels: MutableList<CharSequence> = ArrayList()
+                val cpu_values: MutableList<CharSequence> = ArrayList()
+                cpu_labels.add(res.getString(R.string.new_dynrec_cpu_interface))
+                cpu_values.add("3")
+                cpu_labels.add(res.getString(R.string.software_cpu_interface))
+                cpu_values.add("0")
+                // val cpu_entries = arrayOfNulls<CharSequence>(cpu_labels.size)
+                // cpu_labels.toArray<CharSequence>(cpu_entries)
+                // val cpu_entryValues = arrayOfNulls<CharSequence>(cpu_values.size)
+                // cpu_values.toArray<CharSequence>(cpu_entryValues)
+                cpu_setting.entries = cpu_labels.toTypedArray()
+                cpu_setting.entryValues = cpu_values.toTypedArray()
+                cpu_setting.summary = cpu_setting.entry
+            }
+
+            /* Video */
+            val video_cart =
+                preferenceManager.findPreference("pref_video") as ListPreference?
+
+            val video_labels: MutableList<CharSequence> = ArrayList()
+            val video_values: MutableList<CharSequence> = ArrayList()
+
+            val activityManager = requireActivity().getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            val configurationInfo = activityManager.deviceConfigurationInfo
+            val supportsEs3 = configurationInfo.reqGlEsVersion >= 0x30000
+
+            val deviceSupportsAEP: Boolean =
+                requireActivity().getPackageManager().hasSystemFeature(PackageManager.FEATURE_OPENGLES_EXTENSION_PACK)
+
+            if (supportsEs3) {
+                video_labels.add(res.getString(R.string.opengl_video_interface))
+                video_values.add("1")
+            } else {
+                val newFragment = WarningDialogFragment()
+                newFragment.show(parentFragmentManager, "OGL")
+            }
+
+            video_labels.add(res.getString(R.string.software_video_interface))
+            video_values.add("2")
+
+            if (requireActivity().getPackageManager().hasSystemFeature(PackageManager.FEATURE_VULKAN_HARDWARE_LEVEL)) {
+                video_labels.add(res.getString(R.string.vulkan_video_interface))
+                video_values.add("4")
+            }
+
+            video_cart!!.entries = video_labels.toTypedArray()
+            video_cart.entryValues = video_values.toTypedArray()
+            video_cart.summary = video_cart.entry
+
+            /* Filter */
+            val filter_setting =
+                preferenceManager.findPreference("pref_filter") as ListPreference?
+            filter_setting!!.summary = filter_setting.entry
+            filter_setting.isEnabled = video_cart.value == "1"
+
+            /* scsp */
+            val scsp_setting =
+                preferenceManager.findPreference("pref_scsp_sync_per_frame") as EditTextPreference?
+            scsp_setting!!.summary = scsp_setting.text
+
+            /* Polygon Generation */
+
+            // ListPreference cpu_sync_setting = (ListPreference) getPreferenceManager().findPreference("pref_cpu_sync_per_line");
+            // cpu_sync_setting.setSummary(cpu_sync_setting.getEntry());
+
+            /* Polygon Generation */
+            val polygon_setting =
+                preferenceManager.findPreference("pref_polygon_generation") as ListPreference?
+            polygon_setting!!.summary = polygon_setting.entry
+
+
+            if( (video_cart.value == "4") ) {
+                polygon_setting.isEnabled = false
+                polygon_setting.value = "2"
+            }else{
+                polygon_setting.isEnabled = true
+            }
+
+            if (deviceSupportsAEP == false) {
+                polygon_setting.entries =
+                    arrayOf("Triangles using perspective correction")
+                polygon_setting.entryValues = arrayOf("0")
+            }
+
+            val r_setting =
+                preferenceManager.findPreference("pref_use_compute_shader") as CheckBoxPreference?
+            if (video_cart.value == "4") {
+                r_setting?.isEnabled = false
+                r_setting?.isChecked = true
+            } else if (video_cart.value == "1") {
+                r_setting?.isEnabled = true
+            } else {
+                r_setting?.isEnabled = false
+                r_setting?.isChecked = false
+            }
+
+            val onscreen_pad =
+                findPreference("on_screen_pad") as PreferenceScreen?
+            onscreen_pad!!.onPreferenceClickListener = Preference.OnPreferenceClickListener {
+                val nextActivity = Intent(requireContext(), PadTestActivity::class.java)
+                startActivity(nextActivity)
+                true
+            }
+
+            syncInputDevice("player1")
+            syncInputDevice("player2")
+
+            /*
+        Preference select_image = findPreference("select_image");
+        select_image.setOnPreferenceClickListener(new OnPreferenceClickListener() {
+            @Override
+            public boolean onPreferenceClick(Preference preference) {
+
+                Intent intent = new Intent();
+                intent.setType("image/ *");
+                intent.setAction(Intent.ACTION_GET_CONTENT);
+                int PICK_IMAGE = 1;
+                startActivityForResult(Intent.createChooser(intent, "Select Picture"), PICK_IMAGE);
+
+                return true;
+            }
+        });
+*/
+            val soundengine_setting =
+                preferenceManager.findPreference("pref_sound_engine") as ListPreference?
+            soundengine_setting!!.summary = soundengine_setting.entry
+
+            val resolution_setting =
+                preferenceManager.findPreference("pref_resolution") as ListPreference?
+            resolution_setting!!.summary = resolution_setting.entry
+
+            val aspect_setting =
+                preferenceManager.findPreference("pref_aspect_rate") as ListPreference?
+            aspect_setting!!.summary = aspect_setting.entry
+
+            val rbg_resolution_setting =
+                preferenceManager.findPreference("pref_rbg_resolution") as ListPreference?
+            rbg_resolution_setting!!.summary = rbg_resolution_setting.entry
+
+            val scsp_time_sync_setting =
+                preferenceManager.findPreference("scsp_time_sync_mode") as ListPreference?
+            scsp_time_sync_setting!!.summary = scsp_time_sync_setting.entry
+
+            val scsp_sync_time =
+                preferenceManager.findPreference("pref_scsp_sync_per_frame") as EditTextPreference?
+            scsp_sync_time?.setOnBindEditTextListener {
+                it.inputType = InputType.TYPE_CLASS_NUMBER
+            }
+
+            val frameLimitSetting =
+                preferenceManager.findPreference("pref_frameLimit") as ListPreference?
+            frameLimitSetting!!.summary = frameLimitSetting.entry
+
+            // Set up account preferences
+            setupAccountPreferences()
+
+            setUpInstall()
+        }
+
+        override fun onDisplayPreferenceDialog(preference: Preference) {
+            val f: DialogFragment?
+            if (preference is InputSettingPreference) {
+                f = InputSettingPreferenceFragment.newInstance(preference.getKey())
+            } else if (preference is GameDirectoriesDialogPreference) {
+
+                preference.setDirListChangeListener(this)
+
+                f = GameDirectoriesDialogFragment.newInstance(preference.getKey())
+                /*
+                // Above version 10
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    var dir = YabauseStorage.storage.gamePath
+                    if (YabauseStorage.storage.hasExternalSD()) {
+                        dir += "\n" + YabauseStorage.storage.externalGamePath
+                    }
+
+                    Toast.makeText(requireActivity(),
+                        "Android 10 device only supports \n $dir",
+                        Toast.LENGTH_LONG).show()
+                    return
+                } else {
+                    f = GameDirectoriesDialogFragment.newInstance(preference.getKey())
+                }
+                */
+            } else {
+                f = null
+            }
+
+            if (f != null) {
+                f.setTargetFragment(this, 0)
+                f.show(requireActivity().supportFragmentManager, DIALOG_FRAGMENT_TAG)
+            } else {
+                super.onDisplayPreferenceDialog(preference)
+            }
+        }
+
+        private fun syncInputDevice(player: String) {
+
+            val devicekey = "pref_" + player + "_inputdevice"
+            val defkey = "pref_" + player + "_inputdef_file"
+            val sharedPref = PreferenceManager.getDefaultSharedPreferences(activity)
+            val res = resources
+            val padm = PadManager.padManager
+            val input_device =
+                preferenceManager.findPreference(devicekey) as ListPreference?
+            val Inputlabels: MutableList<CharSequence> = ArrayList()
+            val Inputvalues: MutableList<CharSequence> = ArrayList()
+            Inputlabels.add(res.getString(R.string.onscreen_pad))
+            Inputvalues.add("-1")
+            for (inputType in 0 until padm!!.getDeviceCount()) {
+                Inputlabels.add(padm.getName(inputType)!!)
+                Inputvalues.add(padm.getId(inputType)!!)
+            }
+            input_device!!.entries = Inputlabels.toTypedArray()
+            input_device.entryValues = Inputvalues.toTypedArray()
+            input_device.summary = input_device.entry
+
+            var inputsetting = preferenceManager.findPreference(defkey) as InputSettingPreference?
+            var onscreen_pad = preferenceManager.findPreference("on_screen_pad") as PreferenceScreen?
+            if (inputsetting != null) {
+                try {
+                    val selInputdevice = sharedPref.getString(devicekey, "65535")
+                    if (padm.getDeviceCount() > 0 && !selInputdevice.equals("-1")) {
+                        inputsetting.setEnabled(true)
+                        if (player == "player1") onscreen_pad!!.setEnabled(true)
+                    } else {
+                        inputsetting.setEnabled(false)
+                        if (player == "player1") onscreen_pad!!.setEnabled(true)
+                    }
+
+                    if (player == "player1") {
+                        padm.setPlayer1InputDevice(selInputdevice)
+                    } else {
+                        padm.setPlayer2InputDevice(selInputdevice)
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
+
+        override fun onSharedPreferenceChanged( sharedPreferences: SharedPreferences?, key: String?) {
+
+            if (key == "pref_bios" || key == "scsp_time_sync_mode" || key == "pref_cart" || key == "pref_video" ||
+                key == "pref_cpu" || key == "pref_filter" || key == "pref_polygon_generation" ||
+                key == "pref_sound_engine" || key == "pref_resolution" || key == "pref_rbg_resolution" ||
+                key == "pref_cpu_sync_per_line" || key == "pref_aspect_rate" || key == "pref_frameLimit" || key == "pref_install_location"
+            ) {
+                val pref = findPreference(key) as ListPreference?
+                pref!!.summary = pref.entry
+                if (key == "pref_video") {
+                    val filter_setting =
+                        preferenceManager.findPreference("pref_filter") as ListPreference?
+                    filter_setting!!.isEnabled = pref.value == "1"
+                    val polygon_setting =
+                        preferenceManager.findPreference("pref_polygon_generation") as ListPreference?
+                    polygon_setting!!.summary = polygon_setting.entry
+                    //polygon_setting.isEnabled = (pref.value == "1" || pref.value == "4")
+
+                    if( pref.value == "4" ) {
+                        polygon_setting.isEnabled = false
+                        polygon_setting.value = "2"
+                    }else{
+                        polygon_setting.isEnabled = true
+                    }
+
+                    val r_setting =
+                        preferenceManager.findPreference("pref_use_compute_shader") as CheckBoxPreference?
+                    if (pref.value == "4") {
+                        r_setting?.isEnabled = false
+                        r_setting?.isChecked = true
+                    } else if (pref.value == "1") {
+                        r_setting?.isEnabled = true
+                    } else {
+                        r_setting?.isEnabled = false
+                        r_setting?.isChecked = false
+                    }
+                }
+            } else if (key == "pref_player1_inputdevice") {
+                val pref = findPreference(key) as ListPreference?
+                pref!!.summary = pref.entry
+                syncInputDevice("player1")
+                syncInputDevice("player2")
+            } else if (key == "pref_player2_inputdevice") {
+                val pref = findPreference(key) as ListPreference?
+                pref!!.summary = pref.entry
+                syncInputDevice("player1")
+                syncInputDevice("player2")
+            }
+
+            val install =
+                preferenceManager.findPreference("pref_install_location") as ListPreference?
+            if (install != null) {
+                install.summary = install.entry
+            }
+
+            val download =
+                preferenceManager.findPreference("pref_game_download_directory") as ListPreference?
+            if (download != null) {
+                download.summary = download.entry
+            }
+
+            if (key == "pref_scsp_sync_per_frame") {
+                val ep = findPreference(key) as EditTextPreference?
+                val sval = ep!!.text
+
+                var synccount = 0
+                try {
+                    synccount = sval!!.toInt()
+                } catch (e: Exception) {
+                }
+
+                if (synccount <= 0) {
+                    synccount = 1
+                    val sp = PreferenceManager.getDefaultSharedPreferences(requireActivity())
+                    sp.edit().putString("pref_scsp_sync_per_frame", synccount.toString()).commit()
+                } else if (synccount > 255) {
+                    synccount = 255
+                    val sp = PreferenceManager.getDefaultSharedPreferences(requireActivity())
+                    sp.edit().putString("pref_scsp_sync_per_frame", synccount.toString()).commit()
+                }
+                ep.summary = synccount.toString()
+            }
+
+            if (key == "pref_force_androidtv_mode") {
+                if (restart_level <= 1) restart_level = 2
+                updateResultCode()
+            }
+        }
+
+        override fun onChangeDir(isChange: Boolean?) {
+            dirlist_status = isChange!!
+            if (dirlist_status == true) {
+                if (restart_level <= 0) restart_level = 1
+                updateResultCode()
+            }
+        }
+
+        fun updateResultCode() {
+            val resultIntent = Intent()
+            if (restart_level == 1) {
+                requireActivity().setResult(GameSelectFragment.GAMELIST_NEED_TO_UPDATED,
+                    resultIntent)
+            } else if (restart_level == 2) {
+                requireActivity().setResult(GameSelectFragment.GAMELIST_NEED_TO_RESTART,
+                    resultIntent)
+            } else {
+                requireActivity().setResult(0, resultIntent)
+            }
+        }
+
+    }
+}

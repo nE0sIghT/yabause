@@ -6,9 +6,10 @@ include (CheckCSourceCompiles)
 include(CheckFunctionExists)
 include(CheckIncludeFile)
 
-cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 3.5)
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_SOURCE_DIR}/CMakeTests)
+
 
 set(yabause_HEADERS
 	bios.h
@@ -56,19 +57,24 @@ set(yabause_SOURCES
 	vdp1.cpp vdp2.cpp vdp2debug.c vidogl.c vidshared.c vidsoft.c
 	yabause.c
 	Counter.cpp
-	ygl_texture.cpp
+	#ygl_texture.cpp
 	BackupManager.cpp
 	jsoncpp.cpp
+	cd-web.cpp
 	PlayRecorder.cpp
 	sh2cache.c )
 	add_definitions(-DIMPROVED_SAVESTATES)
+
 if (ANDROID)
+	add_definitions(-D__ANDROID__)
     add_definitions(-DANDROID=1)
 	add_definitions(-DYAB_PORT_OSD)
 	add_definitions(-D_OGLES3_)
 	add_definitions(-DYAB_ASYNC_RENDERING)
 	add_definitions(-DYAB_PORT_OSD)
-	include_directories(./ ./nanovg)		
+	include_directories( ./ ./nanovg )	
+	include_directories( ./vulkan/include )
+	#include_directories( ${ANDROID_NDK}/sources/third_party/vulkan/src/include)
 	set(yabause_SOURCES
 		${yabause_SOURCES}
 		yglcache.c
@@ -77,9 +83,14 @@ if (ANDROID)
 		nanovg/nanovg.c 
 		nanovg/nanovg_osdcore.h 
 		nanovg/nanovg_osdcore.c
-		)
+	  )
 endif()
 
+string(COMPARE EQUAL ${YAB_PORTS} "retro_arena" retro_arena)
+if( retro_arena )
+  add_definitions(-D__RETORO_ARENA__)
+  add_definitions(-DYAB_ASYNC_RENDERING)
+endif()
 
 if ("${CMAKE_SYSTEM_NAME}" STREQUAL "Switch")
 add_definitions(-DYAB_PORT_OSD)
@@ -104,19 +115,23 @@ add_definitions(-DHAVE_LIBGL)
 add_definitions(-DYAB_PORT_OSD)
 add_definitions(-D_OGLES3_)
 add_definitions(-DYAB_ASYNC_RENDERING)
-
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -g -fobjc-abi-version=2 -fobjc-arc -std=gnu++11 -stdlib=libc++ -isysroot ${CMAKE_OSX_SYSROOT}")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -g -fobjc-abi-version=2 -fobjc-arc -isysroot ${CMAKE_OSX_SYSROOT}")
+include_directories( ./ )	
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -g -fobjc-abi-version=2 -fobjc-arc -std=gnu++11 -stdlib=libc++ -fno-aligned-allocation -isysroot ${CMAKE_OSX_SYSROOT}")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -g -fobjc-abi-version=2 -fobjc-arc -fno-aligned-allocation -isysroot ${CMAKE_OSX_SYSROOT}")
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -fobjc-abi-version=2 -fobjc-arc -std=gnu++11 -stdlib=libc++ -isysroot ${CMAKE_OSX_SYSROOT}")
 #set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -fobjc-abi-version=2 -fobjc-arc -isysroot ${CMAKE_OSX_SYSROOT}")
 IF (${SIMULATOR})
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mios-simulator-version-min=6.0")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mios-simulator-version-min=11.0")
 ENDIF()
 set(yabause_SOURCES
 ${yabause_SOURCES}
 yglcache.c
 ygles.c
 yglshaderes.c )
+
+set(yabause_SOURCES ${yabause_SOURCES} sndCoreAudio.c)
+set(yabause_HEADERS ${yabause_HEADERS} sndCoreAudio.h)
+
 endif (IOS)
 
 include_directories(nanovg)
@@ -129,7 +144,11 @@ if (WEB_INTERFACE)
 	add_subdirectory(webinterface)
 endif()
 
-
+if (IOS)
+	# iOS can't use compute shader
+else ()
+	set(yabause_SOURCES ${yabause_SOURCES} ygl_texture.cpp)
+endif ()
 
 option(YAB_WANT_SH2_CACHE "Enable Sh2 cache emulation" OFF)
 if (YAB_WANT_SH2_CACHE)
@@ -155,9 +174,13 @@ if (YAB_WANT_DYNAREC_DEVMIYAX)
 	  sh2_dynarec_devmiyax/opcodes.h)
 
 		if (MSVC) # NASM
-	  	set(YABAUSE_LIBRARIES 
-			  ${YABAUSE_LIBRARIES} 
-			  ${CMAKE_CURRENT_SOURCE_DIR}/sh2_dynarec_devmiyax/dynalib )
+		
+		if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+	  		set(YABAUSE_LIBRARIES ${YABAUSE_LIBRARIES} ${CMAKE_CURRENT_SOURCE_DIR}/sh2_dynarec_devmiyax/dynalib_x86_64 )
+		else()			
+			set(YABAUSE_LIBRARIES ${YABAUSE_LIBRARIES} ${CMAKE_CURRENT_SOURCE_DIR}/sh2_dynarec_devmiyax/dynalib )
+		endif()
+
 		else() # UNIX(GAS)
 			if("${CMAKE_SYSTEM_PROCESSOR}" MATCHES  "arm")
 				enable_language(ASM-ATT)
@@ -167,9 +190,11 @@ if (YAB_WANT_DYNAREC_DEVMIYAX)
 			elseif("${CMAKE_SYSTEM_PROCESSOR}" MATCHES  "aarch64")
 				enable_language(ASM-ATT)
                                 add_definitions(-DAARCH64) 
-				set(yabause_SOURCES 
-				  ${yabause_SOURCES}
-					sh2_dynarec_devmiyax/dynalib_arm64.s)
+				if (IOS) 
+					set(yabause_SOURCES  ${yabause_SOURCES} sh2_dynarec_devmiyax/dynalib_arm64_mach.s)
+				else ()
+					set(yabause_SOURCES  ${yabause_SOURCES} sh2_dynarec_devmiyax/dynalib_arm64.s)
+				endif ()
 			endif ()
 		endif ()
 
@@ -203,7 +228,7 @@ if (YAB_USE_SCSP2)
 	set(yabause_SOURCES ${yabause_SOURCES} scsp2.c)
 	set(yabause_HEADERS ${yabause_HEADERS} scsp2.h)
 else()
-	set(yabause_SOURCES ${yabause_SOURCES} scsp.c)
+	set(yabause_SOURCES ${yabause_SOURCES} scsp.cpp)
 endif()
 
 # Enable SCSP MIDI hooks in sound interface
@@ -488,7 +513,7 @@ if (MSVC)
         endif (EXISTS "$ENV{SYSTEMDRIVE}/WINDDK/3790.1830/")
 
 	add_definitions(/MP -DHAVE_C99_VARIADIC_MACROS -D_CRT_SECURE_NO_WARNINGS -DC68K_NO_JUMP_TABLE
-			-D_UNICODE -DUNICODE)
+			-D_UNICODE -DUNICODE -D_NO_DEBUG_HEAP=1)
 endif (MSVC)
 
 if ( ANDROID_NDK_HOST_SYSTEM_NAME2 MATCHES  "windows" )
@@ -520,6 +545,8 @@ if (WIN32)
 	option(YAB_WANT_DIRECTSOUND "use DirectX sound core if available")
 	option(YAB_WANT_DIRECTINPUT "use DirectX input core if available")
 
+	set(DXERRH_IS_BROKEN 1 CACHE INTERNAL "dxerr is broken")
+	
 	# Direct X
 	if (YAB_WANT_DIRECTSOUND OR YAB_WANT_DIRECTINPUT)
 		find_path(DirectX_INCLUDE_DIR dxerr9.h "$ENV{DXSDK_DIR}/Include")
@@ -739,6 +766,89 @@ if (YAB_WANT_MUSASHI)
     set_property(SOURCE ${MUSASHI_GENERATED_SOURCES} ${MUSASHI_GENERATED_HEADERS} PROPERTY GENERATED ON)
 endif(YAB_WANT_MUSASHI)
 
+
+#----------------------------------------------------------------------------
+# Vulkan plugin
+#----------------------------------------------------------------------------
+
+option(YAB_WANT_VULKAN "Vulkan Graphics Core" OFF)
+if (YAB_WANT_VULKAN)
+
+add_definitions(-DHAVE_VULKAN=1)
+
+include(vulkan/external_glm.cmake)
+
+if (${CMAKE_SYSTEM_NAME} MATCHES "Windows")
+  include(vulkan/external_shaderc.cmake)
+	include(vulkan/external_glfw.cmake)
+	set(LIBVULKAN_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/vulkan/include)
+
+	if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+		set(LIBVULKAN ${CMAKE_CURRENT_SOURCE_DIR}/vulkan/lib/x86_64/vulkan-1.lib )
+	else()
+		set(LIBVULKAN ${CMAKE_CURRENT_SOURCE_DIR}/vulkan/lib/x86/vulkan-1.lib )	
+	endif()
+
+else()
+	set( LIBVULKAN_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/vulkan/Include)
+	set( SHADERC_INCLUDE_DIR ${ANDROID_NDK}/sources/third_party/shaderc/include  )
+	set( SHADERC_LIBRARY_DIR ${ANDROID_NDK}/sources/third_party/shaderc/libs/c++_shared/${ANDROID_ABI}  )
+	set( SHADERC_LIBRARIES ${ANDROID_NDK}/sources/third_party/shaderc/libs/c++_shared/${ANDROID_ABI}/libshaderc.a  )
+	set( LIBVULKAN vulkan )
+endif()
+
+#${ANDROID_NDK}/sources/third_party/shaderc/libshaderc/include 
+
+set(VULKAN_INCLUDE_DIRS ${GLM_INCLUDE_DIRS} ${GLFW_INCLUDE_DIR} ${SHADERC_INCLUDE_DIR} ${LIBVULKAN_INCLUDE} )
+set(VULKAN_LIBRARIES  ${GLFW_LIBRARIES} ${SHADERC_LIBRARIES} ${LIBVULKAN} )
+
+set( VULKAN_SOURCES 
+ vulkan/FramebufferRenderer.cpp
+ vulkan/FramebufferRenderer.h
+ vulkan/TextureManager.cpp
+ vulkan/TextureManager.h
+ vulkan/VertexManager.cpp
+ vulkan/VulkanTools.cpp
+ vulkan/VertexManager.h
+ vulkan/Vdp1Renderer.h
+ vulkan/Vdp1Renderer.cpp
+ vulkan/WindowRenderer.h
+ vulkan/WindowRenderer.cpp
+ vulkan/VdpPipeline.h
+ vulkan/VdpPipeline.cpp
+ vulkan/VdpPipelineFactory.h
+ vulkan/VdpPipelineFactory.cpp
+ vulkan/RBGGeneratorVulkan.h
+ vulkan/VulkanScene.cpp
+ vulkan/VulkanScene.h
+ vulkan/VIDVulkan.cpp
+ vulkan/VIDVulkan.h
+ vulkan/VIDVulkanCInterface.h
+ vulkan/Platform.cpp
+ vulkan/Platform.h
+ vulkan/Renderer.cpp
+ vulkan/Renderer.h
+ vulkan/Shared.cpp
+ vulkan/Shared.h
+ vulkan/Window.cpp
+ vulkan/Window.h
+ nanovg/nanovg_vulkan_osdcore.cpp
+)
+
+include_directories( ${VULKAN_INCLUDE_DIRS} )
+
+set(yabause_SOURCES 
+  ${yabause_SOURCES} 
+  ${VULKAN_SOURCES}
+)
+
+#set(YABAUSE_LIBRARIES
+#  ${YABAUSE_LIBRARIES} 
+#  ${VULKAN_LIBRARIES}
+#)
+
+endif(YAB_WANT_VULKAN)
+
 # q68
 option(YAB_WANT_Q68 "enable q68 compilation" OFF)
 if (YAB_WANT_Q68)
@@ -811,6 +921,9 @@ endif()
 if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
 	add_definitions(-DARCH_IS_MACOSX=1)
 	set(yabause_SOURCES ${yabause_SOURCES} sock-dummy.c thr-linux.cpp /*thr-dummy.c*/ )
+elseif (${CMAKE_SYSTEM_NAME} MATCHES "iOS")
+	add_definitions(-DARCH_IS_MACOSX=1)
+	set(yabause_SOURCES ${yabause_SOURCES} sock-dummy.c thr-linux.cpp /*thr-dummy.c*/ )
 elseif (${CMAKE_SYSTEM_NAME} MATCHES "FreeBSD")
 	add_definitions(-DARCH_IS_FREEBSD=1)
 	set(yabause_SOURCES ${yabause_SOURCES} sock-dummy.c thr-dummy.c cd-freebsd.c)
@@ -850,10 +963,10 @@ else ()
 	set(yabause_SOURCES ${yabause_SOURCES} sock-dummy.c thr-dummy.c)
 endif ()
 
-set(ENABLE_SANITIZER OFF CACHE STRING "Enable/Disable Sanitizer" )
+set(ENABLE_SANITIZER OFF CACHE BOOL "Enable/Disable Sanitizer" )
 if(ENABLE_SANITIZER)
-set( CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address  -fsanitize=leak" )
-set( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address  -fsanitize=leak" )
+set( CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address  -fsanitize=leak -fsanitize-recover=address" )
+set( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address  -fsanitize=leak -fsanitize-recover=address" )
 endif()
 
 if( CMAKE_CXX_COMPILER_ID MATCHES "Clang" )
@@ -924,6 +1037,17 @@ if( IOS )
 else()
 	add_library(yabause ${yabause_SOURCES} ${yabause_HEADERS})
 endif()
+
+assign_source_group(${yabause_SOURCES})
+
+#----------------------------------------------------------------------
+# Library for vulkan plugin
+if(YAB_WANT_VULKAN)
+	if(WIN32)
+		add_dependencies(yabause shaderc)
+	endif()
+add_dependencies(yabause glm)
+endif(YAB_WANT_VULKAN)
 
 #-----------------------------------------------------------------------
 # libCHD

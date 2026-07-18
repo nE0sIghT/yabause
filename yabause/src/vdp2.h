@@ -389,7 +389,7 @@ typedef struct {
 } Vdp2Internal_struct;
 
 extern Vdp2Internal_struct Vdp2Internal;
-extern u64 lastticks;
+extern s64 lastticks;
 extern int vdp2_is_odd_frame;
 extern Vdp2 Vdp2Lines[270];
 
@@ -422,6 +422,7 @@ void Vdp2VBlankIN(void);
 void Vdp2HBlankIN(void);
 void Vdp2HBlankOUT(void);
 void Vdp2VBlankOUT(void);
+void Vdp2UpdateHv( int dot, int line );
 void Vdp2SendExternalLatch(int hcnt, int vcnt);
 void SpeedThrottleEnable(void);
 void SpeedThrottleDisable(void);
@@ -445,6 +446,8 @@ void ToggleFullScreen(void);
 void EnableAutoFrameSkip(void);
 void DisableAutoFrameSkip(void);
 void VdpResume(void);
+
+void VDP2SetFrameLimit(int mode);
 
 Vdp2 * Vdp2RestoreRegs(int line, Vdp2* lines);
 

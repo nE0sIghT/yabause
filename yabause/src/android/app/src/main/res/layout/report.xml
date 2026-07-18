@@ -19,79 +19,183 @@
     Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 -->
 
-<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="wrap_content">
 
-    <TextView
-        android:id="@+id/textView5"
+    <androidx.constraintlayout.widget.ConstraintLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/status_report"
-        android:textStyle="bold"
-        app:layout_constraintTop_toTopOf="parent"
-        tools:layout_editor_absoluteX="0dp" />
+        android:layout_height="wrap_content">
 
-    <RatingBar
-        android:id="@+id/report_ratingBar"
-        style="@android:style/Widget.DeviceDefault.Light.RatingBar.Indicator"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="center_horizontal"
-        android:layout_marginStart="8dp"
-        android:layout_marginEnd="8dp"
-        android:isIndicator="false"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/textView5" />
+        <TextView
+            android:id="@+id/review_notice"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="16dp"
+            android:textStyle="italic"
+            app:layout_constraintTop_toTopOf="parent"/>
 
-    <TextView
-        android:id="@+id/report_rateString"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_gravity="center_horizontal"
-        android:text="Large Text"
-        android:textAlignment="center"
-        android:textSize="10sp"
-        app:layout_constraintTop_toBottomOf="@+id/report_ratingBar"
-        tools:layout_editor_absoluteX="0dp" />
+        <LinearLayout
+            android:id="@+id/emulation_rating"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="8dp"
+            android:paddingLeft="16dp"
+            android:paddingRight="16dp"
+            android:orientation="horizontal"
+            app:layout_constraintTop_toBottomOf="@+id/review_notice"
+            app:layout_constraintBottom_toTopOf="@+id/game_rating">
 
+            <TextView
+                android:id="@+id/emulation_status"
+                android:layout_width="100dp"
+                android:layout_height="wrap_content"
+                android:text="EMULATION:"
+                android:textStyle="bold"
+                android:layout_gravity="center_vertical"
+                />
 
-    <TextView
-        android:id="@+id/textView2"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="@string/issue_report"
-        android:textStyle="bold"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/report_rateString" />
+            <RatingBar
+                android:id="@+id/emulation_ratingBar"
+                style="@android:style/Widget.DeviceDefault.Light.RatingBar.Indicator"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical"
+                android:layout_marginStart="8dp"
+                android:isIndicator="false"
+                app:layout_constraintStart_toEndOf="@+id/textView5"
+                tools:layout_editor_absoluteY="7dp" />
 
-    <EditText
-        android:id="@+id/report_message"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        app:layout_constraintHeight_default="spread"
-        app:layout_constraintHeight_min="96dp"
-        android:textSize="12sp"
-        android:inputType="textMultiLine"
-        app:layout_constraintBottom_toTopOf="@+id/report_Screenshot"
-        app:layout_constraintTop_toBottomOf="@+id/textView2"
-        tools:layout_editor_absoluteX="39dp" />
+            <TextView
+                android:id="@+id/emulation_rateString"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical"
+                android:layout_marginStart="8dp"
+                android:text="Large Text"
+                android:textAlignment="center"
+                android:textSize="14sp"
+                app:layout_constraintStart_toEndOf="@+id/report_ratingBar"
+                tools:layout_editor_absoluteY="16dp" />
 
-    <CheckBox
-        android:id="@+id/report_Screenshot"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="center_horizontal"
-        android:layout_marginStart="8dp"
-        android:layout_marginEnd="8dp"
-        android:checked="true"
-        android:text="@string/send_warning"
-        android:textSize="10sp"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent" />
-</androidx.constraintlayout.widget.ConstraintLayout>
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/game_rating"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="8dp"
+            android:paddingLeft="16dp"
+            android:paddingRight="16dp"
+            android:orientation="horizontal"
+            app:layout_constraintBottom_toTopOf="@+id/input_card"
+            >
+
+            <TextView
+                android:id="@+id/textView5"
+                android:layout_width="100dp"
+                android:layout_height="wrap_content"
+                android:text="GAME:"
+                android:textStyle="bold"
+                android:layout_gravity="center_vertical"
+                />
+
+            <RatingBar
+                android:id="@+id/game_ratingBar"
+                style="@android:style/Widget.DeviceDefault.Light.RatingBar.Indicator"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical"
+                android:layout_marginStart="8dp"
+                android:isIndicator="false"
+                app:layout_constraintStart_toEndOf="@+id/textView5"
+                tools:layout_editor_absoluteY="7dp" />
+
+            <TextView
+                android:id="@+id/game_rateString"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical"
+                android:layout_marginStart="8dp"
+                android:text="Large Text"
+                android:textAlignment="center"
+                android:textSize="14sp"
+                app:layout_constraintStart_toEndOf="@+id/report_ratingBar"
+                tools:layout_editor_absoluteY="16dp" />
+
+        </LinearLayout>
+
+        <androidx.cardview.widget.CardView
+            android:id="@+id/input_card"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:layout_marginEnd="8dp"
+            android:layout_marginBottom="8dp"
+            app:cardCornerRadius="24dp"
+            app:cardElevation="2dp"
+            app:layout_constraintEnd_toStartOf="@+id/send_button"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@+id/game_rating"
+            >
+
+            <EditText
+                android:id="@+id/report_message"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@null"
+                android:hint="@string/issue_report"
+                android:inputType="textMultiLine"
+                android:maxLines="4"
+                android:minHeight="48dp"
+                android:padding="12dp"
+                android:textSize="16sp" />
+
+        </androidx.cardview.widget.CardView>
+
+        <ImageButton
+            android:id="@+id/send_button"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginEnd="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@android:drawable/ic_menu_send"
+            app:layout_constraintBottom_toBottomOf="@+id/input_card"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="@+id/input_card" />
+<!--
+        <LinearLayout
+            android:id="@+id/emoji_container"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginBottom="8dp"
+            android:orientation="horizontal"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            app:layout_constraintBottom_toBottomOf="parent">
+
+            <ImageButton
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@android:drawable/ic_menu_gallery" />
+
+            <ImageButton
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@android:drawable/ic_menu_camera" />
+
+            <ImageButton
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@android:drawable/ic_menu_mylocation" />
+
+        </LinearLayout>
+-->
+    </androidx.constraintlayout.widget.ConstraintLayout>
+
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

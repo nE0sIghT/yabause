@@ -83,7 +83,7 @@
 
         <ImageButton
             android:id="@+id/game_card_menu"
-            style="@style/Widget.AppCompat.ImageButton"
+            style="@style/Widget.Material3.Button.IconButton"
             android:layout_width="48dp"
             android:layout_height="48dp"
             android:background="#00000000"

@@ -20,7 +20,9 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 
 #include <stdio.h>
 #include <string.h>
-#if !defined(__APPLE__)
+#if defined(IOS) || defined(__APPLE__)
+#include <stdlib.h>
+#else
 #include <malloc.h>
 #endif
 #include <stdint.h>
@@ -28,13 +30,17 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 #include "sh2core.h"
 #include "debug.h"
 #include "yabause.h"
-
+#include <condition_variable>
+#include <mutex>
 #include <atomic>
 
 using std::atomic;
 
 atomic<u64> m68k_counter(0);
 atomic<u64> m68k_counter_done(0);
+
+std::mutex m68k_mtx_;
+std::condition_variable m68k_cond_;
 
 const u64 MAX_SCSP_COUNTER = (u64)(44100 * 256 / 60) << SCSP_FRACTIONAL_BITS;
 
@@ -51,7 +57,7 @@ extern "C" {
   }
 
   u64 getM68KCounter() {
-    return m68k_counter;
+     return m68k_counter;
   }
 
   void syncM68K() {

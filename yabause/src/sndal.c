@@ -28,6 +28,8 @@
 #include <AL/alc.h>
 #endif
 
+#include "core.h"
+
 #include "threads.h"
 #include <stdlib.h>
 #include <string.h>
@@ -338,7 +340,7 @@ int SNDALInit() {
 
     alcMakeContextCurrent(NULL);
     /* Start the update thread. */
-	YabThreadStart(YAB_THREAD_OPENAL,sound_update_thd,(void *)buffer);
+	YabThreadStart(YAB_THREAD_OPENAL,"openal",sound_update_thd,(void *)buffer);
     return 0;
 
     /* Error conditions. Errors cause cascading deinitialization, so hence this

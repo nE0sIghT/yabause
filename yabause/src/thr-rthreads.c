@@ -63,9 +63,15 @@ static int hnd_key_once = 0;
 #endif
 #endif
 
+
+int YabThreadInit(){
+    return 0;
+}
+
+
 //////////////////////////////////////////////////////////////////////////////
 
-int YabThreadStart(unsigned int id, void * (*func)(void *), void *arg)
+int YabThreadStart(unsigned int id, const char * name, void * (*func)(void *), void *arg)
 {
 #ifdef _WIN32
 #ifdef HAVE_THREAD_STORAGE
@@ -182,6 +188,11 @@ void YabThreadUSleep( unsigned int stime )
 	usleep(stime);
 #endif
 }
+
+int YabThreadGetFastestCpuIndex(){
+  return 0;
+}
+
 
 void YabThreadSetCurrentThreadAffinityMask(int mask)
 {

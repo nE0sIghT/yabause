@@ -71,6 +71,7 @@ void YabSetError(int type, const void *extra)
       case YAB_ERR_SH2INVALIDOPCODE:
 #ifdef DMPHISTORY
         SH2DumpHistory(CurrentSH2);
+        //exit(-1);
 #endif
          sh = (SH2_struct *)extra;
          SH2GetRegisters(sh, &sh->regs);
@@ -123,23 +124,23 @@ void YabSetError(int type, const void *extra)
 
 //////////////////////////////////////////////////////////////////////////////
 
-void YabErrorMsg(const char * format, ...) {
-    va_list l;
-    int n;
-    char * buffer;
+void YabErrorMsg(const char* format, ...) {
+  va_list l;
+  int n;
+  char* buffer;
 
-    va_start(l, format);
-    n = vsnprintf(NULL, 0, format, l);
-    va_end(l);
-
-    buffer = malloc(n + 1);
-
+  va_start(l, format);
+  n = vsnprintf(NULL, 0, format, l);
+  va_end(l);
+  buffer = calloc(n + 1,0);
+  if (buffer != NULL) {
     va_start(l, format);
     vsprintf(buffer, format, l);
     va_end(l);
 
     YuiErrorMsg(buffer);
     free(buffer);
+  }
 }
 
 //////////////////////////////////////////////////////////////////////////////

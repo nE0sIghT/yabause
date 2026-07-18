@@ -1,4 +1,4 @@
-/*
+﻿/*
         Copyright 2019 devMiyax(smiyaxdev@gmail.com)
 
 This file is part of YabaSanshiro.
@@ -25,6 +25,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 #include <nanogui/button.h>
 #include <nanogui/popupbutton.h>
 #include <nanogui/messagedialog.h>
+#include "GameListPanel.h"
 #include <nanogui/combobox.h>
 #include <nanogui/vscrollpanel.h>
 #include "../config.h"
@@ -35,18 +36,22 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 #include <experimental/filesystem>
 #include <ctime>
 #include <iomanip>
-
+#include <dirent.h>
 #include <nanogui/imageview.h>
 
 namespace fs = std::experimental::filesystem ;
 
 using namespace std;
 
+#include "common.h"
 #include "InputManager.h"
+
 
 #include "about.h"
 
 #include "Preference.h"
+
+#include "GameInfo.h"
 
 #include "yabause.h"
 
@@ -57,32 +62,94 @@ using namespace std;
 int MenuScreen::onShow(){
   //setupPlayerPsuhButton( 0, player1, "Player1 Input Settings", &p1cb );
   //setupPlayerPsuhButton( 1, player2, "Player2 Input Settings", &p2cb );
+  return 0;
+}
+
+#include <thread>
+
+void MenuScreen::refreshGameListAsync(const vector<string> & base_path_array) {
+  bFileSearchCancled = false;
+
+  MessageDialog * dlg = new MessageDialog(this, MessageDialog::Type::Warning, "Searching games", "", "Cancel");
+  evm->setEvent("updateFile", [this, dlg](int code, void * data1, void * data2) {
+    if (!bFileSearchCancled) {
+      string msg((char*)data1);
+      Label * pl = dlg->messageLabel();
+      pl->setCaption(msg);
+      delete data1;
+    }
+  });
+
+
+  std::thread *t = new std::thread([this, base_path_array]() {
+    int indent = 0;
+    for (int i = 0; i < base_path_array.size(); i++) {
+      listdir(base_path_array[i], indent, games);
+    }
+    if (!bFileSearchCancled) {
+      evm->postEvent("showFileSelectDialog");
+    }
+  });
+
+  dlg->setCallback([this, t](int result) {
+    bFileSearchCancled = true;
+    t->join();
+    delete t;
+    games.clear();
+    MENU_LOG("Cancel\n");
+    //void * datax = malloc(256 * sizeof(char));
+    //strcpy((char*)datax, "");
+    //evm->postEvent("close tray", datax);
+  });
+
+  evm->setEvent("showFileSelectDialog", [this, dlg, t, base_path_array](int code, void * data1, void * data2) {
+    t->join();
+    delete t;
+    dlg->dispose();
+    showFileSelectDialog(tools, bCdTray, base_path_array);
+  });
+
+
 }
 
 MenuScreen::MenuScreen( SDL_Window* pwindow, int rwidth, int rheight, const std::string & fname, const std::string & game )
 : nanogui::Screen( pwindow, Eigen::Vector2i(rwidth, rheight), "Menu Screen"){
   
+
+  gameInfoManager = new GameInfoManager();
+  gameInfoManager->getAll(games);
+
   mFocus = nullptr;
   config_file_ = fname;
   current_game_path_ = game;
   swindow = nullptr;
   imageWindow = nullptr;
+  dirSelectWindow = nullptr;
 
-  int image_pix_size_w = this->width() / 2;
-  int image_pix_size_h = this->height() / 2;
+  int image_pix_size_w = this->width() / 2 / this->pixelRatio();
+  int image_pix_size_h = this->height() / 2 / this->pixelRatio();
   imageWindow = new Window(this, "About");                                                                                                         
   imageWindow->setPosition(Vector2i(0, 0));                                                                                                                   
-  imageWindow->setLayout(new GroupLayout(0,0,0));                                                                                                                     
+  imageWindow->setLayout(new GroupLayout(0,0,0));     
+  /*
   GLTexture t;    
   t.load(about_png,about_png_size);  
   float scale = (float)image_pix_size_w / t.width();
-  auto imageView = new ImageView(imageWindow,t);  
+  */
+
+  auto data = nvgCreateImageMem(this->nvgContext(), 0, (unsigned char*)about_png, about_png_size);
+  int iw, ih;
+  nvgImageSize(this->nvgContext(), data, &iw, &ih);
+  float scale = (float)image_pix_size_w / iw;
+  auto imageView = new ImageView(imageWindow);  
+  imageView->bindImage(data);
   imageView->setScale(scale);
   imageView->setFixedScale(true);
   imageView->setFixedOffset(true);
   imageView->setFixedWidth(image_pix_size_w);
   imageView->setFixedHeight(image_pix_size_h);
   imageWindow->center();
+
   //imageWindow->setModal(true);
 
   std::string title = "Yaba Sanshiro "+ std::string(YAB_VERSION) +" Menu";
@@ -123,14 +190,27 @@ MenuScreen::MenuScreen( SDL_Window* pwindow, int rwidth, int rheight, const std:
         Button *b1 = new Button(tools, "Reset");
         b1->setFixedWidth(248);
         b1->setCallback([this]() { 
-          MENU_LOG("Reset\n");  
-          SDL_Event event = {};
-          event.type = reset_;
-          event.user.code = 0;
-          event.user.data1 = 0;
-          event.user.data2 = 0;
-          SDL_PushEvent(&event);          
+          evm->postEvent("reset");
         });        
+#if 0
+        btnPlay = new Button(tools, "Play");
+        btnPlay->setFixedWidth(248);
+        btnPlay->setCallback([this]() {
+          evm->postEvent("play");
+        });
+
+        btnRecord = new Button(tools, "Record");
+        btnRecord->setFixedWidth(248);
+        btnRecord->setCallback([this]() {
+          evm->postEvent("record");
+          if (btnRecord->caption() == "Record") {
+            btnRecord->setCaption("Stop Record");
+          }
+          else {
+            btnRecord->setCaption("Record");
+          }
+        });
+#endif
 
         PopupButton * ps = new PopupButton(tools, "Save State");
         ps->setFixedWidth(248);
@@ -158,28 +238,25 @@ MenuScreen::MenuScreen( SDL_Window* pwindow, int rwidth, int rheight, const std:
 
             size_t pos = current_game_path_.find_last_of("/");
             string base_path = current_game_path_.substr(0,pos);
-            showFileSelectDialog( tools, bCdTray, base_path);
 
-            /*
-            SDL_Event event = {};
-            event.type = close_tray_;
-            event.user.code = 0;
-            //event.user.data1 = malloc( 256* sizeof(char) );
-            //strcpy( (char*)event.user.data1, "filename" );
-            event.user.data2 = 0;
-            SDL_PushEvent(&event);               
-            */
+            Preference pref("default");
+            vector<string> base_path_array = pref.getStringArray("game directories");
+            if (base_path_array.size() > 0) {
+              base_path = base_path_array[0];
+            }
 
+            if (games.size() == 0) {
+              refreshGameListAsync(base_path_array);
+            }
+            else {
+              showFileSelectDialog(tools, bCdTray, base_path_array);
+            }
+           
           }else{
             MENU_LOG("Open CD Tray\n"); 
             bCdTray->setCaption("Close CD Tray");
             this->is_cdtray_open_ = true;
-            SDL_Event event = {};
-            event.type = open_tray_;
-            event.user.code = 0;
-            event.user.data1 = 0;
-            event.user.data2 = 0;
-            SDL_PushEvent(&event);
+            evm->postEvent("open tray");
           }
         });
 
@@ -188,24 +265,14 @@ MenuScreen::MenuScreen( SDL_Window* pwindow, int rwidth, int rheight, const std:
         b2->setFixedWidth(248);
         b2->setCallback([this]() { 
           MENU_LOG("Show/Hide FPS\n");  
-          SDL_Event event = {};
-          event.type = toggile_fps_;
-          event.user.code = 0;
-          event.user.data1 = 0;
-          event.user.data2 = 0;
-          SDL_PushEvent(&event);          
+          evm->postEvent("toggle fps");
         });
 
         Button *b3 = new Button(tools, "Enable/Disable Frame Skip");
         b3->setFixedWidth(248);
         b3->setCallback([this]() { 
-          MENU_LOG("Reset\n");  
-          SDL_Event event = {};
-          event.type = toggile_frame_skip_;
-          event.user.code = 0;
-          event.user.data1 = 0;
-          event.user.data2 = 0;
-          SDL_PushEvent(&event);          
+          MENU_LOG("toggle frame skip\n");  
+          evm->postEvent("toggle frame skip");
         });        
 #if 0
         Button *b4 = new Button(tools, "About");
@@ -216,11 +283,17 @@ MenuScreen::MenuScreen( SDL_Window* pwindow, int rwidth, int rheight, const std:
           imageWindow = new Window(this, "About");                                                                                                         
           imageWindow->setPosition(Vector2i(0, 0));                                                                                                                   
           imageWindow->setLayout(new GroupLayout(0,0,0));                                                                                                                     
-          GLTexture t;    
-          t.load(about_png,about_png_size);  
-          float scale = (float)image_pix_size_w / t.width();
+          //GLTexture t;    
+          //t.load(about_png,about_png_size);  
+          //float scale = (float)image_pix_size_w / t.width();
           //float offset = (t.width() - image_pix_size) / 2;
-          auto imageView = new ImageView(imageWindow,t);  
+          //auto imageView = new ImageView(imageWindow,t);  
+          auto data = nvgCreateImageMem(this->nvgContext(), 0, about_png, about_png_size);
+          int iw, ih;
+          nvgImageSize(this->nvgContext(), data, &iw, &ih);
+          float scale = (float)image_pix_size_w / iw;
+          auto imageView = new ImageView(imageWindow);
+          imageView->bindImage(data);
           imageView->setScale(scale);
           imageView->setFixedScale(true);
           imageView->setFixedOffset(true);
@@ -248,6 +321,14 @@ MenuScreen::MenuScreen( SDL_Window* pwindow, int rwidth, int rheight, const std:
         player_configs_[0].player->mouseEnterEvent(player_configs_[0].player->absolutePosition(),true);
         mFocus = player_configs_[0].player;
 
+        Preference pref("default");
+        string base_path;
+        vector<string> base_path_array = pref.getStringArray("game directories");
+        if (base_path_array.size() > 0) {
+          base_path = base_path_array[0];
+          checkGameFiles(this, base_path_array);
+        }
+
         performLayout();
         
 }
@@ -264,20 +345,143 @@ void MenuScreen::showInputCheckDialog( const std::string & key ){
     current_key_ = key;
 }
 
-#include <dirent.h>
-
 inline bool ends_with(std::string const & value, std::string const & ending)
 {
     if (ending.size() > value.size()) return false;
     return std::equal(ending.rbegin(), ending.rend(), value.rbegin());
 }
 
+void MenuScreen::setupBiosMenu(PopupButton *parent, std::shared_ptr<Preference> preference) {
+  string f = preference->getString("bios file", "");
+
+  Popup *bpopup = parent->popup();
+  bpopup->setLayout(new GroupLayout(4, 2, 2, 2));
+  new Label(bpopup, "BIOS");
+  ComboBox * bcb = new ComboBox(bpopup);
+  vector<string> bitems;
+  bitems.push_back("Use built-in BIOS");
+
+  if (f != "") {
+    bitems.push_back(f);
+  }
+  else {
+    bitems.push_back("Select BIOS file");
+  }
+  bcb->setItems(bitems);
+  Popup *cbpopup = bcb->popup();
+  bcb->setCallback([this, cbpopup, bcb]() {
+    pushActiveMenu(cbpopup, bcb);
+  });
+
+  
+  if ( f == "") {
+    bcb->setSelectedIndex(0);
+  }
+  else {
+    bcb->setSelectedIndex(1);
+  }
+ 
+
+  std::function<void(int32_t)> cbk = [this, preference](int32_t idx) {
+    popActiveMenu();
+    evm->postEvent("select bios", idx);
+    return;
+  };
+
+  bcb->setCallbackSelect(cbk);
+
+}
+
+bool selectDirectory(std::string & out);
+
+void MenuScreen::setupGameDirsMenu(PopupButton *parent, std::shared_ptr<Preference> preference) {
+
+  Popup *popup = parent->popup();
+  new Label(popup, "Game Directories");
+  Button *b0 = new Button(popup, "Select");
+  b0->setCallback([this,b0]() {
+
+    std::shared_ptr<Preference> preference(new Preference("default"));
+
+    int image_pix_size_w = this->width() / 2;
+    int image_pix_size_h = this->height() / 2;
+    dirSelectWindow = new Window(this, "Select Game Directories");
+    dirSelectWindow->setPosition(Vector2i(0, 0));
+    dirSelectWindow->setLayout(new GridLayout(
+      Orientation::Horizontal,
+      2,
+      Alignment::Fill,
+      8,
+      8
+    ));
+   
+
+    auto gdir = preference->getStringArray("game directories");
+
+    for (int i=0; i<gdir.size(); i++) {
+      new Label(dirSelectWindow, gdir[i] );
+      auto delBtn = new Button(dirSelectWindow, "Delete" );
+      delBtn->setCallback([this, i]() {
+        std::shared_ptr<Preference> preference(new Preference("default"));
+        auto gdir = preference->getStringArray("game directories");
+        gdir.erase( gdir.begin() + i );
+        preference->setStringArray("game directories", gdir);
+        this->popActiveMenu();
+        if (this->dirSelectWindow != nullptr) {
+          this->dirSelectWindow->dispose();
+          this->dirSelectWindow = nullptr;
+        }
+      });
+    }
+
+    auto addBtn = new Button(dirSelectWindow, "Add");
+    addBtn->setCallback([this]() {
+      string dir;
+      if (selectDirectory(dir) == true) {
+        std::shared_ptr<Preference> preference(new Preference("default"));
+        auto gdir = preference->getStringArray("game directories");
+        gdir.push_back(dir);
+        preference->setStringArray("game directories", gdir);
+        this->popActiveMenu();
+        if (this->dirSelectWindow != nullptr) {
+          this->dirSelectWindow->dispose();
+          this->dirSelectWindow = nullptr;
+        }
+
+      }
+    });
+
+    new Label(dirSelectWindow, "");
+
+    Button *btn = new Button(dirSelectWindow, "Close");
+    btn->setCallback([this]() {
+      this->popActiveMenu();
+      if (this->dirSelectWindow != nullptr) {
+        this->dirSelectWindow->dispose();
+        this->dirSelectWindow = nullptr;
+      }
+    });
+
+    dirSelectWindow->center();
+    dirSelectWindow->setModal(true);
+    dirSelectWindow->requestFocus();
+
+    pushActiveMenu(dirSelectWindow, b0);
+
+
+  });
+
+}
 
 void MenuScreen::showConfigDialog( PopupButton *parent ){
 
   // Todo setCurrentGamePath
-  std::shared_ptr<Preference> preference(new Preference( current_game_path_ ));
+  std::shared_ptr<Preference> preference(new Preference("default"));
 
+  setupGameDirsMenu(parent, preference);
+
+  setupBiosMenu(parent, preference);
+  
   Popup *popup = parent->popup();    
   popup->setLayout(new GroupLayout(4,2,2,2)); 
   new Label(popup, "Resolution");
@@ -297,11 +501,16 @@ void MenuScreen::showConfigDialog( PopupButton *parent ){
   });
 
   cb->setSelectedIndex( preference->getInt("Resolution",0) );
-  cb->setCallbackSelect([this,preference]( int idx ) {
+
+  std::function<void(int32_t)> cbk = [this, preference](int32_t idx) {
     popActiveMenu();
-    preference->setInt("Resolution",idx);
+    preference->setInt("Resolution", idx);
     VideoSetSetting(VDP_SETTING_RESOLUTION_MODE, idx);
-  });
+    return;
+  };
+
+  cb->setCallbackSelect(cbk);
+
 
   new Label(popup, "Aspect rate");
   cb = new ComboBox(popup);  
@@ -316,13 +525,18 @@ void MenuScreen::showConfigDialog( PopupButton *parent ){
     pushActiveMenu(cbpopup, cb );
   });
 
+  cb->setChangeCallback([](bool ok){});
+
+
   cb->setSelectedIndex( preference->getInt("Aspect rate",0) );
-  cb->setCallbackSelect([this,preference]( int idx ) {
+
+  cb->setCallbackSelect([this,preference]( int32_t idx ) {
     popActiveMenu();
     preference->setInt("Aspect rate",idx);
+    VideoSetSetting(VDP_SETTING_RBG_RESOLUTION_MODE, idx);
   });
 
-  new Label(popup, "Rotate screen resolution");
+  new Label(popup, "Rotate screen");
   cb = new ComboBox(popup);  
   items.clear();
   items.push_back("Original");
@@ -337,7 +551,8 @@ void MenuScreen::showConfigDialog( PopupButton *parent ){
   });
 
   cb->setSelectedIndex( preference->getInt("Rotate screen resolution",0) );
-  cb->setCallbackSelect([this,preference]( int idx ) {
+
+  cb->setCallbackSelect([this,preference]( int32_t idx ) {
     popActiveMenu();
     preference->setInt("Rotate screen resolution",idx);
     VideoSetSetting(VDP_SETTING_RBG_RESOLUTION_MODE, idx);
@@ -353,7 +568,8 @@ void MenuScreen::showConfigDialog( PopupButton *parent ){
   });
 
 
-  ba = new Button(popup,"Rotate screen");  
+  new Label(popup, "Screen orientation");
+  ba = new Button(popup,"Rotate");  
   ba->setFlags(Button::ToggleButton); 
   ba->setPushed( preference->getBool("Rotate screen",false) );
   ba->setChangeCallback([this,preference](bool state) { 
@@ -361,6 +577,7 @@ void MenuScreen::showConfigDialog( PopupButton *parent ){
     VideoSetSetting(VDP_SETTING_ROTATE_SCREEN, state);
   });
 
+  
 }
 
 void MenuScreen::showSaveStateDialog( Popup *popup ){
@@ -399,12 +616,7 @@ void MenuScreen::showSaveStateDialog( Popup *popup ){
 
     Button *tmp = new Button(popup, stream.str() );
     tmp->setCallback([this,i,popup]() { 
-      SDL_Event event = {};
-      event.type = save_state_;
-      event.user.code = i;
-      event.user.data1 = 0;
-      event.user.data2 = 0;
-      SDL_PushEvent(&event);
+      evm->postEvent("save state", i);
       popActiveMenu();
     });  
 
@@ -460,12 +672,7 @@ void MenuScreen::showLoadStateDialog( Popup *popup ){
 
       Button *tmp = new Button(popup, stream.str() );
       tmp->setCallback([this,i,popup]() { 
-        SDL_Event event = {};
-        event.type = load_state_;
-        event.user.code = i;
-        event.user.data1 = 0;
-        event.user.data2 = 0;
-        SDL_PushEvent(&event);
+        evm->postEvent("load state", i);
         popActiveMenu();
       });  
 
@@ -487,81 +694,307 @@ void MenuScreen::showLoadStateDialog( Popup *popup ){
 
 }
 
+std::string getExtension(const std::string& filename) {
+  size_t dotPos = filename.rfind('.');
+  if (dotPos != std::string::npos) {
+    return filename.substr(dotPos + 1);
+  }
+  return "";
+}
 
-void MenuScreen::showFileSelectDialog( Widget * parent, Widget * toback, const std::string & base_path ){
-  const int dialog_width = 512;
-  const int dialog_height = this->size()[1] - 20 ;
-    swindow = new Window(this, "Select File");
-    swindow->setPosition(Vector2i(  this->size()[0]/2 - (dialog_width/2) ,   this->size()[1]/2 - (dialog_height/2) ));
+void MenuScreen::listdir(const string & dirname, int indent, vector<shared_ptr<GameInfo>> & files )
+{
+  DIR *dir;
+  struct dirent *entry;
+
+  if (!(dir = opendir(dirname.c_str())))
+    return;
+
+  while ((entry = readdir(dir)) != NULL) {
+
+    if ( bFileSearchCancled ) {
+      return;
+    }
+
+    if (entry->d_type == DT_DIR) {
+      char path[1024];
+      if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+        continue;
+      snprintf(path, sizeof(path), "%s/%s", dirname.c_str(), entry->d_name);
+      printf("%*s[%s]\n", indent, "", entry->d_name);
+      listdir(string(path), indent + 2, files);
+    }
+    else {
+      printf("%*s- %s\n", indent, "", entry->d_name);
+      string dname = dirname + "/" + entry->d_name;
+      //std::transform(dname.begin(), dname.end(), dname.begin(), ::tolower);
+      //if (ends_with(dname, ".cue") || ends_with(dname, ".mdf") || ends_with(dname, ".ccd") || ends_with(dname, ".chd")) {
+      //  files.push_back(dname);
+      //}
+
+      auto extention = getExtension(dname);
+      std::transform(extention.begin(), extention.end(), extention.begin(), ::tolower);
+
+      if (ends_with(dname, "cue") ) {
+        shared_ptr<GameInfo> p = GameInfo::genGameInfoFromCUE(dname);
+        if (p != nullptr) {
+          files.push_back(p);
+          gameInfoManager->insert(p);
+        }
+        else {
+          cout << "Fail to generate " << dname << endl;
+        }
+      }
+
+      if (ends_with(dname, "chd")) {
+        shared_ptr<GameInfo> p = GameInfo::genGameInfoFromCHD(dname);
+        if (p != nullptr) {
+          files.push_back(p);
+          gameInfoManager->insert(p);
+        }
+        else {
+          cout << "Fail to generate " << dname << endl;
+        }
+      }
+
+      void * data = new char[dname.length()+1];
+      strcpy((char*)data, dname.c_str());
+      evm->postEvent("updateFile", data);
+
+    }
+  }
+  closedir(dir);
+}
+
+
+void MenuScreen::checkdir(const string & dirname, int indent, vector<string> & files)
+{
+  DIR *dir;
+  struct dirent *entry;
+
+  if (!(dir = opendir(dirname.c_str())))
+    return;
+
+  while ((entry = readdir(dir)) != NULL) {
+    if (entry->d_type == DT_DIR) {
+      char path[1024];
+      if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+        continue;
+      snprintf(path, sizeof(path), "%s/%s", dirname.c_str(), entry->d_name);
+      printf("%*s[%s]\n", indent, "", entry->d_name);
+      checkdir(string(path), indent + 2, files);
+      if (files.size() != 0) {
+        closedir(dir);
+        return;
+      }
+    }
+    else {
+      printf("%*s- %s\n", indent, "", entry->d_name);
+      string dname = dirname + "/" + entry->d_name;
+      //std::transform(dname.begin(), dname.end(), dname.begin(), ::tolower);
+      auto extention = getExtension(dname);
+      std::transform(extention.begin(), extention.end(), extention.begin(), ::tolower);
+      if (ends_with(extention, "cue") || ends_with(extention, "mdf") || ends_with(extention, "ccd") || ends_with(extention, "chd")) {
+        files.push_back(dname);
+        closedir(dir);
+        return;
+      }
+    }
+  }
+  closedir(dir);
+}
+
+void MenuScreen::checkGameFiles(Widget * parent, const vector<std::string> & base_paths) {
+  DIR *dir;
+  struct dirent *ent;
+  int filecount = 0;
+
+  vector<string> files;
+  int indent = 0;
+  for (int i = 0; i < base_paths.size(); i++) {
+    checkdir(base_paths[i], indent, files);
+    filecount = files.size();
+    if (filecount != 0) {
+      break;
+    }
+  }
+
+#if 0
+  if ((dir = opendir(base_path.c_str())) != NULL) {
+    /* print all the files and directories within directory */
+    while ((ent = readdir(dir)) != NULL) {
+      string dname = ent->d_name;
+      std::transform(dname.begin(), dname.end(), dname.begin(), ::tolower);
+      if (ends_with(dname, ".cue") || ends_with(dname, ".mdf") || ends_with(dname, ".ccd") || ends_with(dname, ".chd")) {
+        filecount++;
+        break;
+      }
+    }
+  }
+#endif
+
+  if (filecount == 0) {
+    string message;
+    message = "No games are found in \"";
+    message += base_paths[0] + "\" folder. ";
+    message += "Place cue or ccd or chd files there.";
+    auto dlg = new MessageDialog(this, MessageDialog::Type::Warning, "Game not found", message.c_str() );
+    nanogui::Button* btn = (nanogui::Button*)mFocus;
+    mFocus->mouseEnterEvent(mFocus->position(), false);
+
+    auto preFocus = mFocus;
+    dlg->setCallback([this, preFocus](int result) { 
+      mFocus = preFocus;
+      preFocus->mouseEnterEvent(preFocus->position(), true); 
+    });
+    dlg->requestFocus();
+
+    mFocus = dlg->getOkBottn();
+    MENU_LOG("%s is selected\n", ((nanogui::Button*)mFocus)->caption().c_str());
+    mFocus->mouseEnterEvent(mFocus->position(), true);
+  }
+}
+
+void MenuScreen::showFileSelectDialog( Widget * parent, Widget * toback, const vector<std::string> & base_paths ){
+  const int dialog_width = 512 ;
+  const int dialog_height = (this->size()[1] / this->pixelRatio() - 20) ;
+    swindow = new Window(this, "Select Game");
+    swindow->setPosition(Vector2i( 
+      (this->size()[0]/2 / this->pixelRatio()) - (dialog_width/2) ,  
+      (this->size()[1]/2 / this->pixelRatio()) - (dialog_height/2) ));
+
     swindow->setFixedSize({dialog_width, dialog_height});
     //swindow->setLayout(new GroupLayout());
 
     auto vscroll = new VScrollPanel(swindow);
-    vscroll->setFixedSize({dialog_width, dialog_height });
-    auto wrapper = new Widget(vscroll);
-    wrapper->setFixedSize({dialog_width, dialog_height });
-    wrapper->setLayout(new GroupLayout());
-
-    //pushActiveMenu(parent,toback);
-
-    DIR *dir;
-    struct dirent *ent;
-    bool first_object = true;
-    if ((dir = opendir (base_path.c_str())) != NULL) {
-      /* print all the files and directories within directory */
-      while ((ent = readdir (dir)) != NULL) {
-        string dname = ent->d_name;
-        std::transform(dname.begin(), dname.end(), dname.begin(), ::tolower);
-        if( ends_with(dname, ".cue") || ends_with(dname, ".mdf") || ends_with(dname, ".ccd") || ends_with(dname, ".chd") ){
-            Button *tmp = new Button(wrapper, ent->d_name );
-            string path = base_path + "/" + string(ent->d_name);
-            tmp->setCallback([this,path]() { 
-              MENU_LOG("CD Close: %s\n", path.c_str() ); 
-              SDL_Event event = {};
-              event.type = close_tray_;
-              event.user.code = 0;
-              event.user.data1 = malloc( (path.size()+1) * sizeof(char) );
-              strcpy( (char*)event.user.data1, path.c_str() );
-              event.user.data2 = 0;
-              SDL_PushEvent(&event);
-              this->popActiveMenu();
-              this->swindow->dispose();
-              this->swindow = nullptr;
-            });  
-            if( first_object ){
-              first_object = false;
-              pushActiveMenu(wrapper,toback);
-            }
-        }
-      }
-      closedir (dir);
-    } else {
-    }
+    vscroll->setPosition(Vector2i(0, 20));
+    vscroll->setFixedSize({dialog_width, dialog_height - 28});
     
-    Button *b0 = new Button(wrapper, "Cancel");
-    if( first_object ){
-       first_object = false;
-       pushActiveMenu(wrapper,toback);
-    }    
-    b0->setCallback([this]() { 
-      MENU_LOG("Cancel\n"); 
-      SDL_Event event = {};
-      event.type = close_tray_;
-      event.user.code = 0;
-      //event.user.data1 = malloc( 256* sizeof(char) );
-      //strcpy( (char*)event.user.data1, "filename" );
-      //event.user.data2 = 0;
-      //SDL_PushEvent(&event);
+    auto wrapper = new Widget(vscroll);
+    wrapper->setPosition(Vector2i(0, 20));
+    wrapper->setFixedSize({dialog_width, dialog_height - 28});
+    wrapper->setLayout(new GroupLayout());
+    
+
+    bool first_object = true;
+
+    Button *b1 = new Button(wrapper, "refresh");
+    if (first_object) {
+      first_object = false;
+      pushActiveMenu(wrapper, toback);
+    }
+
+    b1->setCallback([this]() {
+      MENU_LOG("refresh\n");
+
       this->popActiveMenu();
       swindow->dispose();
       swindow = nullptr;
-     //this->performLayout();
+
+      gameInfoManager->clearAll();
+      games.clear();
+
+      Preference pref("default");
+      vector<string> base_path_array = pref.getStringArray("game directories");
+      refreshGameListAsync(base_path_array);
+
     });
 
-    //new Label(swindow,"Push key for " + key, "sans", 64);
-    //swindow->center();
-    swindow->setModal(true);
-    swindow->requestFocus();
+
+
+    Button *b0 = new Button(wrapper, "Cancel");
+    if (first_object) {
+      first_object = false;
+      pushActiveMenu(wrapper, toback);
+    }
+
+    b0->setCallback([this]() {
+      MENU_LOG("Cancel\n");
+      void * data1 = malloc(256 * sizeof(char));
+      strcpy((char*)data1, "");
+      evm->postEvent("close tray", data1);
+      this->popActiveMenu();
+      swindow->dispose();
+      swindow = nullptr;
+    });
+
+    int file_count = 0;
+    int indent = 0;
+    if (games.size() == 0) {
+      gameInfoManager->clearAll();
+      for (int i = 0; i < base_paths.size(); i++) {
+        listdir(base_paths[i], indent, games);
+      }
+    }
+
+    file_count = games.size();
+
+    
+    vector<pair<int, string>> icons;
+    for (int i = 0; i < games.size(); i++) {
+
+      printf("%d, %s\n",i, games[i]->imageUrl.c_str());
+
+      ImageButton *tmp = new ImageButton(wrapper, games[i]->gameTitle, i);
+      string path = games[i]->filePath;
+
+      tmp->setOnImageRequested([this,vscroll](int id, int x, int y, int w, int h) {
+
+        float pos = vscroll->getScrollPos();
+
+        const int bx = vscroll->position().x();
+        const int by = vscroll->position().y() + int(pos);
+        const int bw = vscroll->size().x();
+        const int bh = vscroll->size().y();
+
+        // 交差してる?
+        if ( x < bx + bw && bx < x + w &&
+             y < by + bh && by < y + h) {
+
+          int imageid = imageCache->get(id);
+
+          if (imageid == -1) {
+            int img = nvgCreateImage(mNVGContext, games[id]->imageUrl.c_str(), 0);
+            int removed = imageCache->set(id,img);
+            if (removed != -1) {
+              nvgDeleteImage(mNVGContext, removed);
+            }
+            return img;
+          }
+          return imageid;
+        }
+        return -1;
+
+      });
+
+      tmp->setCallback([this, path]() {
+        MENU_LOG("CD Close: %s\n", path.c_str());
+        void * data1 = malloc((path.size() + 1) * sizeof(char));
+        strcpy((char*)data1, path.c_str());
+        evm->postEvent("close tray", data1);
+
+        this->popActiveMenu();
+        this->swindow->dispose();
+        this->swindow = nullptr;
+      });
+
+      if (first_object) {
+        first_object = false;
+        pushActiveMenu(wrapper, toback);
+      }
+
+    }
+
+
+
+    if (file_count == 0) {
+      swindow->setModal(true);
+      checkGameFiles(this, base_paths);
+    }
+    else {
+      swindow->setModal(true);
+      swindow->requestFocus();
+    }
 
     this->performLayout();
 
@@ -582,9 +1015,29 @@ void MenuScreen::getSelectedGUID( int user_index, std::string & selguid ){
     userid = ss.str();
     if( j.find(userid) != j.end() ) {
       InputManager::genJoyString( selguid, j[userid]["DeviceID"], j[userid]["deviceName"], j[userid]["deviceGUID"] );
+
+      // This device is connected??
+      int index = 0;
+      int selindex = -1;
+      for (auto it = joysticks_.begin(); it != joysticks_.end(); ++it) {
+        SDL_Joystick* joy = it->second;
+        SDL_JoystickID joyId = SDL_JoystickInstanceID(joy);
+        char guid[65];
+        SDL_JoystickGetGUIDString(SDL_JoystickGetGUID(joy), guid, 65);
+        string key_string;
+        InputManager::genJoyString(key_string, joyId, SDL_JoystickName(joy), guid);
+        if (selguid == key_string) {
+          selindex = index;
+        }
+      }
+
+      if (selindex == -1) {
+        selguid = "-1_Keyboard_-1"; // not found force keyboard
+      }
+
     }
   }catch ( json::exception& e ){
-
+    selguid = "-1_Keyboard_-1"; // not found force keyboard
   }
 
 }
@@ -592,13 +1045,11 @@ void MenuScreen::getSelectedGUID( int user_index, std::string & selguid ){
 
 void MenuScreen::setupPlayerPsuhButton( int user_index, PopupButton *player, const std::string & label, ComboBox **cbo ){
   player->setFixedWidth(248);
-  Popup *popup = player->popup();     
+  Popup *popup = player->popup();
   popup->setLayout(new GroupLayout(4,2,2,2)); 
   new Label(popup, label);
 
   std::string username;
-
-
   json j;
   string selguid="BADGUID";
   string selname="BADNAME";
@@ -606,6 +1057,7 @@ void MenuScreen::setupPlayerPsuhButton( int user_index, PopupButton *player, con
   std::stringstream ss;
   std::string userid;
 
+#if 0
   try{
     std::ifstream fin( config_file_ );
     fin >> j;
@@ -635,6 +1087,7 @@ void MenuScreen::setupPlayerPsuhButton( int user_index, PopupButton *player, con
     InputManager::genJoyString( key_string, joyId, SDL_JoystickName(joy), guid );
     if( selguid  == key_string ){
       selindex = index;
+      cuurent_deviceguid_ = key_string;
     }
     printf("listguid = %d:%s\n", index, key_string.c_str() );
     index++;
@@ -646,23 +1099,29 @@ void MenuScreen::setupPlayerPsuhButton( int user_index, PopupButton *player, con
   if( selindex != -1 ){
     cb->setSelectedIndex(selindex);
   }
+  else {
+    cuurent_deviceguid_ = "-1_Keyboard_-1"; // not found force keyboard
+  }
+
   printf("selguid = %d:%s\n", selindex, selguid.c_str() );
+
 
   Popup *cbpopup = cb->popup(); 
   cb->setCallback([this,cbpopup,cb]() {       
     pushActiveMenu(cbpopup, cb );
   });
-  
-  cb->setCallbackSelect([this, userid]( int idx ) {
+
+
+  cb->setCallbackSelect([this, userid](int32_t idx ) {
       popActiveMenu();
 
       SDL_JoystickID joyId = -1;
       int itenindex = 0;
       std::string device_name = "Keyboard";
       string guid_only = "-1";
-      cuurent_deviceguid_ = "Keyboard_-1";
+      cuurent_deviceguid_ = "-1_Keyboard_-1";
       if( idx >= joysticks_.size() ){
-        cuurent_deviceguid_ = "Keyboard_-1"; // keyboard may be
+        cuurent_deviceguid_ = "-1_Keyboard_-1"; // keyboard may be
       }else{
         for( auto it = joysticks_.begin(); it != joysticks_.end() ; ++it ) {
           if( itenindex == idx ){
@@ -725,17 +1184,12 @@ void MenuScreen::setupPlayerPsuhButton( int user_index, PopupButton *player, con
       out << j.dump(2);
       out.close();        
 
-      SDL_Event event = {};
-      event.type = this->update_config_;
-      event.user.code = 0;
-      event.user.data1 = 0;
-      event.user.data2 = 0;
-      SDL_PushEvent(&event);         
+      evm->postEvent("update config");
 
   });
-
-
   *cbo = cb;
+#endif
+
 
   Button * ba = new Button(popup,"Analog mode");  
   ba->setFlags(Button::ToggleButton); 
@@ -765,12 +1219,8 @@ void MenuScreen::setupPlayerPsuhButton( int user_index, PopupButton *player, con
       out << j.dump(2);
       out.close();
 
-      SDL_Event event = {};
-      event.type = this->update_config_;
-      event.user.code = 0;
-      event.user.data1 = 0;
-      event.user.data2 = 0;
-      SDL_PushEvent(&event);   
+      evm->postEvent("update config");
+
     }catch ( json::exception& e ){
 
     }
@@ -814,6 +1264,13 @@ void MenuScreen::setupPlayerPsuhButton( int user_index, PopupButton *player, con
     getSelectedGUID( user_index, this->cuurent_deviceguid_ );
     showInputCheckDialog("start");
   });
+
+  b = new Button(popup, "SELECT");
+  b->setCallback([this, user_index] {
+    getSelectedGUID(user_index, this->cuurent_deviceguid_);
+    showInputCheckDialog("select");
+  });
+
 
   b = new Button(popup, "A");
   b->setCallback([this, user_index]{
@@ -860,30 +1317,22 @@ void MenuScreen::setupPlayerPsuhButton( int user_index, PopupButton *player, con
   b = new Button(popup, "Analog X");
   b->setCallback([this, user_index]{
     getSelectedGUID( user_index, this->cuurent_deviceguid_ );
-    if( this->cuurent_deviceguid_ != "Keyboard_-1" ){
-      showInputCheckDialog("analogx");
-    }
+    showInputCheckDialog("analogx");
   });   
   b = new Button(popup, "Analog Y");
   b->setCallback([this, user_index]{
     getSelectedGUID( user_index, this->cuurent_deviceguid_ );
-    if( this->cuurent_deviceguid_ != "Keyboard_-1" ){
-      showInputCheckDialog("analogy");
-    }
+    showInputCheckDialog("analogy");
   });   
   b = new Button(popup, "Analog L");
   b->setCallback([this, user_index]{
     getSelectedGUID( user_index, this->cuurent_deviceguid_ );
-    if( this->cuurent_deviceguid_ != "Keyboard_-1"){
-      showInputCheckDialog("analogl");
-    }
+    showInputCheckDialog("analogl");
   });   
   b = new Button(popup, "Analog R");
   b->setCallback([this, user_index]{
     getSelectedGUID( user_index, this->cuurent_deviceguid_ );
-    if( this->cuurent_deviceguid_ != "Keyboard_-1"){
-      showInputCheckDialog("analogr");
-    }
+    showInputCheckDialog("analogr");
   });   
 }
 
@@ -902,10 +1351,12 @@ int MenuScreen::onRawInputEvent( InputManager & imp, const std::string & deviceg
 
   cout << "onRawInputEvent deviceguid:" << deviceguid << " type:" << type << " id:" << id << " val:" << value << endl;
 
+#if 0
   if( deviceguid != cuurent_deviceguid_ ){ 
     cout << "deviceguid = " << deviceguid << " vs cuurent_deviceguid = " << cuurent_deviceguid_ << endl;
     return -1; 
   }
+#endif
 
   // wait for key input?
   if( current_key_ != "l" && current_key_ != "r" ) {
@@ -924,18 +1375,27 @@ int MenuScreen::onRawInputEvent( InputManager & imp, const std::string & deviceg
   swindow->dispose();
   swindow = nullptr;
 
-  SDL_Event event = {};
-  event.type = this->update_config_;
-  event.user.code = 0;
-  event.user.data1 = 0;
-  event.user.data2 = 0;
-  SDL_PushEvent(&event);   
+  evm->postEvent("update config");
+
   return 0;
 }
 
-bool MenuScreen::keyboardEvent( std::string & keycode , int scancode, int action, int modifiers){
+bool MenuScreen::sendRepeatEvent( const std::string & keycode, int scancode, int action, int modifiers) {
+  char * str = new char[keycode.length() + 1];
+  strncpy(str, keycode.c_str(), keycode.length()+1);
+  SDL_Event event = {};
+  event.type = this->repeat_;
+  event.user.code = action;
+  event.user.data1 = str;
+  event.user.data2 = 0;
+  SDL_PushEvent(&event);
+  return true;
+}
 
-  if( swindow != nullptr && swindow->title() != "Select File"){ return false; }
+
+bool MenuScreen::keyboardEvent( const std::string & keycode , int scancode, int action, int modifiers){
+
+  if( swindow != nullptr && swindow->title() != "Select Game"){ return false; }
 
   MENU_LOG("%s %d %d\n",keycode.c_str(),scancode,action);
   if (action != 0) {
@@ -953,9 +1413,9 @@ bool MenuScreen::keyboardEvent( std::string & keycode , int scancode, int action
           auto vscroll = wrapper->parent();
           if( vscroll != nullptr && dynamic_cast<VScrollPanel*>(vscroll) != nullptr  ){
               MENU_LOG("pos=%d vpod = %f\n",mFocus->position().y(),((VScrollPanel*)vscroll)->getScrollPos()  );
-              if( mFocus->position().y() - ((VScrollPanel*)vscroll)->getScrollPos() > vscroll->height() ){
+              if( (mFocus->position().y() + mFocus->size().y())  - ((VScrollPanel*)vscroll)->getScrollPos() > vscroll->height() ){
                 Vector2i p(0,0);
-                Vector2f rel(0.0,-1.0);
+                Vector2f rel(0.0, -(1.0 / (games.size()) * 20) );
                 (VScrollPanel*)vscroll->scrollEvent(p,rel);
             }
         }
@@ -973,9 +1433,9 @@ bool MenuScreen::keyboardEvent( std::string & keycode , int scancode, int action
           auto vscroll = wrapper->parent();
           if( vscroll != nullptr ){
               MENU_LOG("pos=%d vpod = %f\n",mFocus->position().y(),((VScrollPanel*)vscroll)->getScrollPos()  );
-              if( mFocus->position().y() - ((VScrollPanel*)vscroll)->getScrollPos() < 0 ){
+              if((mFocus->position().y()) - ((VScrollPanel*)vscroll)->getScrollPos() < 0 ){
                 Vector2i p(0,0);
-                Vector2f rel(0.0,1.0);
+                Vector2f rel(0.0, (1.0 / (games.size()) * 20) );
                 (VScrollPanel*)vscroll->scrollEvent(p,rel);
             }
         }
@@ -1001,6 +1461,8 @@ void MenuScreen::setBackGroundImage( const std::string & fname ){
   imageid_ = nvgCreateImage(mNVGContext, fname.c_str(), 0 );
   nvgImageSize(mNVGContext, imageid_, &imgw_, &imgh_);
   MENU_LOG("imageid_:%d w:%d h:%d\n",imageid_,imgw_,imgh_);
+  imgw_ /= this->pixelRatio();
+  imgh_ /= this->pixelRatio();
 	imgPaint_ = nvgImagePattern(mNVGContext, 0, 0, imgw_,imgh_, 0, imageid_, 0.5f);
 }
 
@@ -1016,6 +1478,10 @@ void MenuScreen::setTmpBackGroundImage( const std::string & fname ){
   imageid_tmp_ = nvgCreateImage(mNVGContext, fname.c_str(), 0 );
   nvgImageSize(mNVGContext, imageid_, &imgw_, &imgh_);
   MENU_LOG("imageid_:%d w:%d h:%d\n",imageid_,imgw_,imgh_);
+
+  imgw_ /= this->pixelRatio();
+  imgh_ /= this->pixelRatio();
+
 	imgPaint_ = nvgImagePattern(mNVGContext, 0, 0, imgw_,imgh_, 0, imageid_tmp_, 0.5f);
 }
 
@@ -1024,6 +1490,8 @@ void MenuScreen::setDefalutBackGroundImage(){
     return;
   }
   nvgImageSize(mNVGContext, imageid_, &imgw_, &imgh_);
+  imgw_ /= this->pixelRatio();
+  imgh_ /= this->pixelRatio();
 	imgPaint_ = nvgImagePattern(mNVGContext, 0, 0, imgw_,imgh_, 0, imageid_, 0.5f);
 }
 
@@ -1077,10 +1545,11 @@ void MenuScreen::setCurrentInputDevices( std::map<SDL_JoystickID, SDL_Joystick*>
       itemsShort.push_back(SDL_JoystickName(joy));
   }  
   itemsShort.push_back("KeyBoard");
-  items.push_back("Keyboard_-1");
+  items.push_back("-1_Keyboard_-1");
   itemsShort.push_back("Disable");
   items.push_back("Disable_-2");
 
+#if 0
   for( int i=0; i< player_configs_.size(); i++ ){
     ComboBox * cb = player_configs_[i].cb ;
     if( cb != nullptr ){
@@ -1102,6 +1571,7 @@ void MenuScreen::setCurrentInputDevices( std::map<SDL_JoystickID, SDL_Joystick*>
       }
     }
   }
+#endif
   performLayout();
 }
 
@@ -1189,13 +1659,21 @@ int MenuScreen::onBackButtonPressed(){
     return 1;    
   }
 
+  if (dirSelectWindow != nullptr) {
+    this->popActiveMenu();
+    dirSelectWindow->dispose();
+    dirSelectWindow = nullptr;
+    return 1;
+  }
+
+/*
   if( imageWindow != nullptr ){
     this->popActiveMenu();
     imageWindow->dispose();
     imageWindow = nullptr;    
     return 1;
   }
-  
+*/  
  //if( swindow != nullptr ){ 
  //  printf("swindow != null\n");
  //  return 1; 

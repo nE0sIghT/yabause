@@ -23,6 +23,11 @@
 #include "Settings.h"
 #include "VolatileSettings.h"
 
+#ifdef HAVE_VULKAN
+#include "vulkan/VIDVulkan.h"
+#include "vulkan/VIDVulkanCInterface.h"
+#endif
+
 #include <QApplication>
 #include <QLabel>
 #include <QGroupBox>
@@ -33,6 +38,7 @@
 // cores
 
 #ifdef Q_OS_WIN
+#include <Windows.h>
 extern CDInterface SPTICD;
 #endif
 
@@ -85,6 +91,7 @@ CDInterface *CDCoreList[] = {
 #ifndef UNKNOWN_ARCH
 &ArchCD,
 #endif
+&WebApiCD,
 NULL
 };
 
@@ -110,7 +117,10 @@ VideoInterface_struct *VIDCoreList[] = {
 #ifdef HAVE_LIBGL
 &VIDOGL,
 #endif
-&VIDSoft,
+//&VIDSoft,
+#ifdef HAVE_VULKAN
+&CVIDVulkan,
+#endif
 NULL
 };
 
@@ -124,6 +134,9 @@ OSD_struct *OSDCoreList[] = {
 &OSDSoft,
 #ifdef HAVE_LIBGL
 &OSDNnovg,
+#endif
+#ifdef HAVE_VULKAN
+&OSDNnovgVulkan,
 #endif
 NULL
 };
@@ -146,15 +159,38 @@ QMap<uint, PerMouse_struct*> mPort2MouseBits;
 QMap<uint, PerAnalog_struct*> mPort1AnalogBits;
 QMap<uint, PerAnalog_struct*> mPort2AnalogBits;
 
+#include <QStandardPaths>
+
+const char * YuiGetShaderCachePath() {
+
+	QString cacheDir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
+	cacheDir += "/";
+	QDir dir(cacheDir);
+	if (!dir.exists()) {
+		dir.mkpath(cacheDir);  // ディレクトリを作成
+	}
+	return qstrdup(cacheDir.toLocal8Bit().constData());
+}
+
 extern "C" 
 {
 	void YuiErrorMsg(const char *string)
-	{ QtYabause::mainWindow()->appendLog( string ); }
+	{ 
+    QtYabause::mainWindow()->appendLog( string ); 
+  }
 	
 	void YuiSwapBuffers()
-	{ 
-		QtYabause::mainWindow()->swapBuffers(); 
-		}
+	{
+#ifdef HAVE_VULKAN		
+    if (VIDCore->id == VIDCORE_VULKAN) {
+      VIDVulkan::getInstance()->present();
+    }else{
+      QtYabause::mainWindow()->swapBuffers();
+    }
+#else
+		QtYabause::mainWindow()->swapBuffers();
+#endif
+	}
 
 #if defined(HAVE_DIRECTINPUT) || defined(HAVE_DIRECTSOUND)
    HWND DXGetWindow()
@@ -487,7 +523,11 @@ M68K_struct QtYabause::default68kCore()
 
 SH2Interface_struct QtYabause::defaultSH2Core()
 {
-   return SH2Interpreter;
+#if DYNAREC_DEVMIYAX
+	return SH2Dyn;
+#else
+	return SH2Interpreter;
+#endif
 }
 
 QMap<uint, PerPad_struct*>* QtYabause::portPadsBits( uint portNumber )

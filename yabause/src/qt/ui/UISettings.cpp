@@ -25,7 +25,7 @@
 
 #include <QDir>
 #include <QList>
-#include <QDesktopWidget>
+//#include <QDesktopWidget>
 
 extern "C" {
 extern M68K_struct* M68KCoreList[];
@@ -113,6 +113,10 @@ const Items mRbgResolutionMode = Items()
 << Item("3", "1080P")
 << Item("4", "Fit to Emulation Resolution");
 
+const Items mEmulationSpeed = Items()
+<< Item("0", "1x")
+<< Item("2", "2x")
+<< Item("1", "Unlimited");
 
 UISettings::UISettings( QList <supportedRes_struct> *supportedResolutions, QList <translation_struct> *translations, QWidget* p )
 	: QDialog( p )
@@ -120,15 +124,19 @@ UISettings::UISettings( QList <supportedRes_struct> *supportedResolutions, QList
 	// setup dialog
 	setupUi( this );
 
-	QRect maxWinRect = QApplication::desktop()->availableGeometry();
+	QRect maxWinRect = QGuiApplication::primaryScreen()->availableGeometry();
 	
 	
-	leWinWidth->setValidator(new QIntValidator(0, maxWinRect.width(), leWinWidth));
-	leWinHeight->setValidator(new QIntValidator(0, maxWinRect.height(), leWinHeight));
-	
-	QString ipNum("(?:[0-1]?[0-9]?[0-9]|2[0-4][0-9]|25[0-5])");
-	leCartridgeModemIP->setValidator(new QRegExpValidator(QRegExp("^" + ipNum + "\\." + ipNum + "\\." + ipNum + "\\." + ipNum + "$"), leCartridgeModemIP));
+	//leWinWidth->setValidator(new QIntValidator(0, maxWinRect.width(), leWinWidth));
+	//leWinHeight->setValidator(new QIntValidator(0, maxWinRect.height(), leWinHeight));
+
+	// IP�A�h���X�̐��K�\���p�^�[��
+	QString ipNum = "(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])";
+	QRegularExpression ipRegex("^" + ipNum + "\\." + ipNum + "\\." + ipNum + "\\." + ipNum + "$");
 	leCartridgeModemPort->setValidator(new QIntValidator(1, 65535, leCartridgeModemPort));
+
+	cbPolygonGeneration->blockSignals(true);
+	cbVideoCore->blockSignals(true);
 
 	pmPort1->setPort( 1 );
 	pmPort1->loadSettings();
@@ -169,7 +177,27 @@ UISettings::UISettings( QList <supportedRes_struct> *supportedResolutions, QList
 	
 	// retranslate widgets
 	QtYabause::retranslateWidget( this );
+
+	cbVideoCore->blockSignals(false);
+	cbPolygonGeneration->blockSignals(false);
+
 }
+
+void UISettings::on_btnLow_clicked() {
+	cbPolygonGeneration->setCurrentIndex(cbPolygonGeneration->findData(mPolygonGenerationMode.at(0).id.toInt()));
+	cbResolution->setCurrentIndex(mResolutionMode.at(3).id.toInt());
+	cbRBGREsolution->setCurrentIndex(cbRBGREsolution->findData(mRbgResolutionMode.at(0).id.toInt()));
+	cbUseComputeShader->setChecked(false);
+}
+
+void UISettings::on_btnHigh_clicked() {
+
+	cbPolygonGeneration->setCurrentIndex(cbPolygonGeneration->findData(mPolygonGenerationMode.at(2).id.toInt()));
+	cbResolution->setCurrentIndex(mResolutionMode.at(0).id.toInt());
+	cbRBGREsolution->setCurrentIndex(cbRBGREsolution->findData(mRbgResolutionMode.at(4).id.toInt()));
+	cbUseComputeShader->setChecked(true);
+}
+
 
 void UISettings::requestFile( const QString& c, QLineEdit* e, const QString& filters )
 {
@@ -326,6 +354,100 @@ void UISettings::on_cbCartridge_currentIndexChanged( int id )
 	leCartridgeModemPort->setVisible(mCartridgeTypes[id].ipFlag);
 }
 
+#include <QProcess>
+
+void UISettings::checkRestart(std::function<void()> cancelCallBack) {
+
+	// �ċN�����m�F����_�C�A���O��\��
+	QMessageBox::StandardButton reply = QMessageBox::question(
+		this,
+		QtYabause::translate("Restart Required"),
+		QtYabause::translate("To apply this change, the application needs to restart.\nDo you want to restart now?"),
+		QMessageBox::Yes | QMessageBox::Cancel
+	);
+
+	if (reply == QMessageBox::Yes) {
+		// �ݒ��ۑ����� (���� saveVideoCoreId(id) ���g�p����Ɖ���)
+		saveSettings();
+
+		// �ċN������
+		QString program = QCoreApplication::applicationFilePath();
+		QStringList arguments = QCoreApplication::arguments();
+		arguments.removeFirst(); // �A�v���̃p�X�͏��O
+		QProcess::startDetached(program, arguments); // �V�����v���Z�X���J�n
+		QCoreApplication::quit(); // ���݂̃A�v���P�[�V�������I��
+	}
+	else if (reply == QMessageBox::Cancel) {
+		// �ݒ�����ɖ߂�
+		//cbVideoCore->setCurrentIndex(currentId);
+		cancelCallBack();
+	}
+
+
+}
+
+void UISettings::on_cbPolygonGeneration_currentIndexChanged(int id) {
+
+	Settings* s = QtYabause::settings();
+
+	// ���݂̐ݒ�ID���擾�i���� getCurrentVideoCoreId() �Ō��݂̐ݒ���擾������̂Ƃ���j
+	int currentId = cbPolygonGeneration->findData(s->value("Video/polygon_generation_mode", mPolygonGenerationMode.at(2).id).toInt());
+
+	// �ݒ肪�ύX����Ă��Ȃ��ꍇ�͉������Ȃ�
+	if (id == currentId) {
+		return;
+	}
+
+	checkRestart([&] {
+		cbPolygonGeneration->setCurrentIndex(currentId);
+	});
+
+}
+
+void UISettings::on_cbVideoCore_currentIndexChanged(int id) {
+
+	Settings* s = QtYabause::settings();
+
+	// ���݂̐ݒ�ID���擾�i���� getCurrentVideoCoreId() �Ō��݂̐ݒ���擾������̂Ƃ���j
+	int currentId = cbVideoCore->findData(s->value("Video/VideoCore", QtYabause::defaultVIDCore().id).toInt());
+
+	// �ݒ肪�ύX����Ă��Ȃ��ꍇ�͉������Ȃ�
+	if (id == currentId) {
+		return;
+	}
+
+	checkRestart([&] {
+		cbVideoCore->setCurrentIndex(currentId);
+	});
+
+#if 0
+	// �ċN�����m�F����_�C�A���O��\��
+	QMessageBox::StandardButton reply = QMessageBox::question(
+		this,
+		QtYabause::translate("Restart Required"),
+		QtYabause::translate("To apply this change, the application needs to restart.\nDo you want to restart now?"),
+		QMessageBox::Yes | QMessageBox::Cancel
+	);
+
+	if (reply == QMessageBox::Yes) {
+		// �ݒ��ۑ����� (���� saveVideoCoreId(id) ���g�p����Ɖ���)
+		saveSettings();
+
+		// �ċN������
+		QString program = QCoreApplication::applicationFilePath();
+		QStringList arguments = QCoreApplication::arguments();
+		arguments.removeFirst(); // �A�v���̃p�X�͏��O
+		QProcess::startDetached(program, arguments); // �V�����v���Z�X���J�n
+		QCoreApplication::quit(); // ���݂̃A�v���P�[�V�������I��
+	}
+	else if (reply == QMessageBox::Cancel) {
+		// �ݒ�����ɖ߂�
+		cbVideoCore->setCurrentIndex(currentId);
+	}
+#endif
+
+}
+
 void UISettings::loadCores()
 {
 	// CD Drivers
@@ -338,8 +460,8 @@ void UISettings::loadCores()
 
 #if YAB_PORT_OSD
 	// OSD Drivers
-	for ( int i = 0; OSDCoreList[i] != NULL; i++ )
-		cbOSDCore->addItem( QtYabause::translate( OSDCoreList[i]->Name ), OSDCoreList[i]->id );
+//	for ( int i = 0; OSDCoreList[i] != NULL; i++ )
+//		cbOSDCore->addItem( QtYabause::translate( OSDCoreList[i]->Name ), OSDCoreList[i]->id );
 #else
 	delete cbOSDCore;
 	delete lOSDCore;
@@ -348,6 +470,11 @@ void UISettings::loadCores()
 	// Video Formats
 	foreach ( const Item& it, mVideoFormats )
 		cbVideoFormat->addItem( QtYabause::translate( it.Name ), it.id );
+
+  // EmulationSpeed
+  foreach(const Item& it, mEmulationSpeed)
+    cbEmulationSpeed->addItem(QtYabause::translate(it.Name), it.id);
+
 
 	// Video FilterMode
 	foreach(const Item& it, mVideoFilterMode)
@@ -495,6 +622,8 @@ void UISettings::loadSettings()
 	cbShowFPS->setChecked( s->value( "General/ShowFPS" ).toBool() );
 	cbAutostart->setChecked( s->value( "autostart" ).toBool() );
 
+  cbEmulationSpeed->setCurrentIndex(cbEmulationSpeed->findData(s->value("General/EmulationSpeed", mEmulationSpeed.at(0).id).toInt()));
+
 	bool clocksync = s->value( "General/ClockSync" ).toBool();
 	cbClockSync->setChecked( clocksync );	 
 	dteBaseTime->setVisible( clocksync );
@@ -505,39 +634,41 @@ void UISettings::loadSettings()
 	else
 		dteBaseTime->setDateTime( QDateTime(QDate(1998, 1, 1), QTime(12, 0, 0)) );
 
-	int numThreads = QThread::idealThreadCount();	
-	cbEnableMultiThreading->setChecked(s->value( "General/EnableMultiThreading", numThreads <= 1 ? false : true ).toBool());
-	sbNumberOfThreads->setValue(s->value( "General/NumThreads", numThreads < 0 ? 1 : numThreads ).toInt());
+//	int numThreads = QThread::idealThreadCount();	
+//	cbEnableMultiThreading->setChecked(s->value( "General/EnableMultiThreading", numThreads <= 1 ? false : true ).toBool());
+//	sbNumberOfThreads->setValue(s->value( "General/NumThreads", numThreads < 0 ? 1 : numThreads ).toInt());
 
 	// video
 	cbVideoCore->setCurrentIndex( cbVideoCore->findData( s->value( "Video/VideoCore", QtYabause::defaultVIDCore().id ).toInt() ) );
-#if YAB_PORT_OSD
-	cbOSDCore->setCurrentIndex( cbOSDCore->findData( s->value( "Video/OSDCore", QtYabause::defaultOSDCore().id ).toInt() ) );
-#endif
+//#if YAB_PORT_OSD
+//	cbOSDCore->setCurrentIndex( cbOSDCore->findData( s->value( "Video/OSDCore", QtYabause::defaultOSDCore().id ).toInt() ) );
+//#endif
 
 	cbAspectRatio->setCurrentIndex( s->value( "Video/AspectRatio", 0 ).toInt() );
-	leWinWidth->setText( s->value( "Video/WindowWidth", s->value( "Video/Width", 800 ) ).toString() );
-	leWinHeight->setText( s->value( "Video/WindowHeight", s->value( "Video/Height", 600 ) ).toString() );
+	//leWinWidth->setText( s->value( "Video/WindowWidth", s->value( "Video/Width", 640 ) ).toString() );
+	//leWinHeight->setText( s->value( "Video/WindowHeight", s->value( "Video/Height", 480 ) ).toString() );
 	QString text = QString("%1x%2").arg(s->value( "Video/FullscreenWidth", s->value( "Video/Width", 1920 ) ).toString(),
 										s->value( "Video/FullscreenHeight", s->value( "Video/Height", 1080 ) ).toString());	
 	cbFullscreenResolution->setCurrentIndex(cbFullscreenResolution->findText(text));
-	cbBilinear->setChecked( s->value( "Video/Bilinear", false ).toBool() );
+//	cbBilinear->setChecked( s->value( "Video/Bilinear", false ).toBool() );
 	cbFullscreen->setChecked( s->value( "Video/Fullscreen", false ).toBool() );
 	cbVideoFormat->setCurrentIndex( cbVideoFormat->findData( s->value( "Video/VideoFormat", mVideoFormats.at( 0 ).id ).toInt() ) );
 	cbFilterMode->setCurrentIndex(cbFilterMode->findData(s->value("Video/filter_type", mVideoFilterMode.at(0).id).toInt()));
-	cbPolygonGeneration->setCurrentIndex(cbPolygonGeneration->findData(s->value("Video/polygon_generation_mode", mPolygonGenerationMode.at(0).id).toInt()));
+	cbPolygonGeneration->setCurrentIndex(cbPolygonGeneration->findData(s->value("Video/polygon_generation_mode", mPolygonGenerationMode.at(2).id).toInt()));
   cbResolution->setCurrentIndex(cbResolution->findData(s->value("Video/resolution_mode", mResolutionMode.at(0).id).toInt()));
-  cbRBGREsolution->setCurrentIndex(cbResolution->findData(s->value("Video/rbg_resolution_mode", mRbgResolutionMode.at(0).id).toInt()));
+  cbRBGREsolution->setCurrentIndex(cbResolution->findData(s->value("Video/rbg_resolution_mode", mRbgResolutionMode.at(4).id).toInt()));
 //   cbEnableIntegerPixelScaling->setChecked(s->value("Video/EnableIntegerPixelScaling", false).toBool());
 //   sbIntegerPixelScalingMultiplier->setValue(s->value("Video/IntegerPixelScalingMultiplier", 2).toInt());
    cbRotateScreen->setChecked(s->value("Video/RotateScreen").toBool());
-   cbUseComputeShader->setChecked(s->value("Video/UseComputeShader").toBool());
+   cbUseComputeShader->setChecked(s->value("Video/UseComputeShader",1).toBool());
+
+   cbSh2Cache->setChecked(s->value("General/UseSh2Cache", true).toBool());
 
 	// sound
 	cbSoundCore->setCurrentIndex( cbSoundCore->findData( s->value( "Sound/SoundCore", QtYabause::defaultSNDCore().id ).toInt() ) );
-   cbNewScsp->setChecked(s->value("Sound/NewScsp", true).toBool());
-   spinBox_scs_sync_count->setValue(s->value("Sound/ScspSync", 1).toInt());
-   cbTimeMode->setCurrentIndex(s->value("Sound/ScspMainMode", 1).toInt());
+//   cbNewScsp->setChecked(s->value("Sound/NewScsp", true).toBool());
+   spinBox_scs_sync_count->setValue(s->value("Sound/ScspSync", 16).toInt());
+   cbTimeMode->setCurrentIndex(s->value("Sound/ScspMainMode", 0).toInt());
 
 	// cartridge/memory
 	cbCartridge->setCurrentIndex( cbCartridge->findData( s->value( "Cartridge/Type", mCartridgeTypes.at( 0 ).id ).toInt() ) );
@@ -560,6 +691,7 @@ void UISettings::loadSettings()
 	cbSH2Interpreter->setCurrentIndex( cbSH2Interpreter->findData( s->value( "Advanced/SH2Interpreter", QtYabause::defaultSH2Core().id ).toInt() ) );
    cb68kCore->setCurrentIndex(cb68kCore->findData(s->value("Advanced/68kCore", QtYabause::default68kCore().id).toInt()));
 
+#if 0
 	// view
 	bgShowMenubar->setId( rbMenubarNever, BD_NEVERHIDE );
 	bgShowMenubar->setId( rbMenubarFullscreen, BD_HIDEFS );
@@ -575,6 +707,7 @@ void UISettings::loadSettings()
 	bgShowLogWindow->setId( rbLogWindowNever, 0 );
 	bgShowLogWindow->setId( rbLogWindowMessage, 1 );
 	bgShowLogWindow->button( s->value( "View/LogWindow", 0 ).toInt() )->setChecked( true );
+#endif
 }
 
 void UISettings::saveSettings()
@@ -600,19 +733,21 @@ void UISettings::saveSettings()
 	s->setValue( "General/ShowFPS", cbShowFPS->isChecked() );
 	s->setValue( "autostart", cbAutostart->isChecked() );
 
+  s->setValue("General/EmulationSpeed", cbEmulationSpeed->itemData(cbEmulationSpeed->currentIndex()).toInt());
+
 
 	// video
 	s->setValue( "Video/VideoCore", cbVideoCore->itemData( cbVideoCore->currentIndex() ).toInt() );
-#if YAB_PORT_OSD
-	s->setValue( "Video/OSDCore", cbOSDCore->itemData( cbOSDCore->currentIndex() ).toInt() );
-#endif
+//#if YAB_PORT_OSD
+//	s->setValue( "Video/OSDCore", cbOSDCore->itemData( cbOSDCore->currentIndex() ).toInt() );
+//#endif
 	// Move Outdated window/fullscreen keys
 	s->remove("Video/Width");
 	s->remove("Video/Height");
 
 	// Save new version of keys
-	s->setValue( "Video/WindowWidth", leWinWidth->text() );
-	s->setValue( "Video/WindowHeight", leWinHeight->text() );
+	//s->setValue( "Video/WindowWidth", leWinWidth->text() );
+	//s->setValue( "Video/WindowHeight", leWinHeight->text() );
 	s->setValue( "Video/AspectRatio", cbAspectRatio->currentIndex() );
 
 	if (supportedRes.count() > 0)
@@ -623,7 +758,7 @@ void UISettings::saveSettings()
 	}
 
 	s->setValue( "Video/Fullscreen", cbFullscreen->isChecked() );
-	s->setValue( "Video/Bilinear", cbBilinear->isChecked() );
+//	s->setValue( "Video/Bilinear", cbBilinear->isChecked() );
 	s->setValue( "Video/VideoFormat", cbVideoFormat->itemData( cbVideoFormat->currentIndex() ).toInt() );
 	s->setValue( "Video/filter_type", cbFilterMode->itemData(cbFilterMode->currentIndex()).toInt());
 	s->setValue( "Video/polygon_generation_mode", cbPolygonGeneration->itemData(cbPolygonGeneration->currentIndex()).toInt());
@@ -636,10 +771,12 @@ void UISettings::saveSettings()
 	s->setValue( "General/ClockSync", cbClockSync->isChecked() );
 	s->setValue( "General/FixedBaseTime", dteBaseTime->dateTime().toString(Qt::ISODate));
 
-	s->setValue( "General/EnableMultiThreading", cbEnableMultiThreading->isChecked() );
-	s->setValue( "General/NumThreads", sbNumberOfThreads->value());
+//	s->setValue( "General/EnableMultiThreading", cbEnableMultiThreading->isChecked() );
+//	s->setValue( "General/NumThreads", sbNumberOfThreads->value());
   s->setValue("Video/RotateScreen", cbRotateScreen->isChecked());
 
+  s->setValue("General/UseSh2Cache", cbSh2Cache->isChecked());
+  
   
 
   s->setValue("Sound/ScspSync", spinBox_scs_sync_count->value() );
@@ -647,7 +784,7 @@ void UISettings::saveSettings()
 
 	// sound
 	s->setValue( "Sound/SoundCore", cbSoundCore->itemData( cbSoundCore->currentIndex() ).toInt() );
-   s->setValue( "Sound/NewScsp", cbNewScsp->isChecked());
+  s->setValue( "Sound/NewScsp", true);
 
 	// cartridge/memory
 	s->setValue( "Cartridge/Type", cbCartridge->itemData( cbCartridge->currentIndex() ).toInt() );
@@ -668,9 +805,9 @@ void UISettings::saveSettings()
    s->setValue("Advanced/68kCore", cb68kCore->itemData(cb68kCore->currentIndex()).toInt());
 
 	// view
-	s->setValue( "View/Menubar", bgShowMenubar->checkedId() );
-	s->setValue( "View/Toolbar", bgShowToolbar->checkedId() );
-	s->setValue( "View/LogWindow", bgShowLogWindow->checkedId() );
+	//s->setValue( "View/Menubar", bgShowMenubar->checkedId() );
+	//s->setValue( "View/Toolbar", bgShowToolbar->checkedId() );
+	//s->setValue( "View/LogWindow", bgShowLogWindow->checkedId() );
 
 	// shortcuts
 	applyShortcuts();

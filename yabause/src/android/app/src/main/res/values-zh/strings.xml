@@ -49,6 +49,16 @@
 
     <string name="input_the_key">输入按键</string>
     <string name="joystick_is_not_connected">手柄未连接。</string>
+
+    <!-- LeaderBoard strings -->
+    <string name="leaderboard_title">排行榜</string>
+    <string name="leaderboard_position">排名</string>
+    <string name="leaderboard_name">名称</string>
+    <string name="leaderboard_time">时间</string>
+    <string name="leaderboard_diff">差异</string>
+    <string name="leaderboard_no_data">该游戏还没有排行榜</string>
+    <string name="leaderboard_not_supported">该游戏尚不支持排行榜</string>
+    <string name="menu_leaderboard">排行榜</string>
     <string name="this_key_has_already_been_set">此按键已设置。</string>
     <string name="up">上</string>
     <string name="down">下</string>
@@ -80,13 +90,25 @@
     <string name="dynrec_cpu_interface">旧动态重编译器 (快速但不准确)</string>
     <string name="software_cpu_interface">解释器 (慢但更准确)</string>
 
-    <string name="opengl_video_interface">OpenGL 视频接口</string>
+    <string name="opengl_video_interface">OpenGL</string>
     <string name="software_video_interface">软件视频接口</string>
     <string name="onscreen_pad">虚拟按键</string>
     <string name="select_from_other_directory">从其他目录中选择。</string>
 
     <string name="menu_save_screenshot">截图</string>
     <string name="menu_report">报告</string>
+
+    <string name="report_message_1">无法启动</string>
+    <string name="report_message_2">介绍/菜单</string>
+    <string name="report_message_3">可玩</string>
+    <string name="report_message_4">很好</string>
+    <string name="report_message_5">完美</string>
+
+    <string name="game_report_message_1">糟糕</string>
+    <string name="game_report_message_2">差</string>
+    <string name="game_report_message_3">一般</string>
+    <string name="game_report_message_4">好</string>
+    <string name="game_report_message_5">优秀</string>
 
     <string name="video_filter">滤镜</string>
     <string name="choose_video_filter">选择视频滤镜</string>
@@ -136,7 +158,6 @@
     <string name="open_cd_tray">打开 CD 盘</string>
     <string name="close_cd_tray">关闭 CD 盘</string>
     <string name="menu_analog">启用 Analog 控制</string>
-    <string name="menu_cheat">金手指</string>
     <string name="add_new_code">添加新代码</string>
 
     <string name="enable">启用</string>
@@ -144,6 +165,7 @@
     <string name="edit">编辑</string>
     <string name="delete">删除</string>
     <string name="select_game_directory">选择游戏目录</string>
+    <string name="add_dir">添加</string>
 
     <string name="sound_curent">当前(对于高端设备 高品质版本)</string>
     <string name="sound_legacy">传统(对于低端设备)</string>
@@ -161,5 +183,152 @@
     <string name="already_have_been">" 如果您已经捐赠，请联系smiyaxdev@gmail.com"</string>
     <string name="close">Close</string>
 
+
+    <string name="siginin_message">
+    登录后即可将保存的数据和状态数据备份到云中，并在设备之间共享。\n
+    但是，这些功能是实验性的，因此它们无法按预期工作，规格可能会更改或终止，恕不另行通知。 即使您没有登录，Firebase 等库也会收集信息以改进您的应用。详细的隐私政策可在 https://www.yabasanshiro.com/privacy 找到。
+    </string>
+    <string name="pro_version_available">专业版可用！\n\n *添加游戏没有限制\n *在设备之间保存/加载游戏状态\n *没有广告\n\n</string>
+    <string name="remaining_installation_count">剩余安装数</string>
+    <string name="remaining_installation_count_is">剩余安装数量为 </string>
+    <string name="do_you_want_to_install">您要安装吗？</string>
+    <string name="which_storage">哪个存储空间？</string>
+    <string name="or_place_file_to">或将游戏手动放入 \"%1$s\" </string>
+
+    <string name="welcome_11">
+        <![CDATA[
+        # 欢迎！ \n\n
+
+        要玩 SEGA Saturn 游戏，您有四个选择。\n\n
+
+        ## 1. 直接将游戏复制到此 Android 设备。\n
+
+        将您的 ISO 图像复制到 **\"%1$s\"**。\n
+
+        ## 2. 复制到外部 SD 卡。\n
+
+        将您的 ISO 图像复制到 SD 卡上的 **\"%2$s\"**。\n
+
+        ## 3. 点击 + 按钮\n
+
+        如果您已经有 CHD 或压缩的 iso 图像文件。只需点按 + 按钮并选择文件。\n\n
+
+        ## 4. 选择一个包含 ISO 镜像的目录\n
+
+        [设置] -> [选择游戏目录] -> [添加]  \n\n
+
+        我们的网站 [https://www.uoyabause.org/static_pages/guide](https://www.uoyabause.org/static_pages/guide) 中描述了更多详细信息。\n
+        ]]>
+    </string>
+
+    <string name="agreement"> 点击“开始”按钮，即表示您同意<a href="https://www.uoyabause.org/static_pages/eula">最终用户许可协议</a>。
+    注意：<a href="https://www.yabasanshiro.com/privacy">隐私政策</a>描述了数据的处理方式。 YabaSanshiro 将诊断数据发送到 devMiyax 和第三方服务，以帮助改进应用程序。
+    </string>
+
+    <string name="restore_defaults">
+        恢复默认值
+    </string>
+    <string name="last_play_game">最近玩过的游戏:</string>
+    <string name="device">设备:</string>
+    <string name="auto_backup_memory_sync">自动备份同步</string>
+    <string name="auto_backup_sync">自动备份同步</string>
+    <string name="msg_fail_to_upload_backup_data_to_cloud">上传备份数据到云失败</string>
+    <string name="msg_fail_to_unzip_backup_data_from_cloud">无法从云中解压备份数据</string>
+    <string name="msg_success_to_download_backup_data_from_cloud">下载备份数据成功</string>
+    <string name="msg_fail_to_download_backup_data_from_cloud">下载云备份数据失败</string>
+    <string name="msg_fail_to_zip_backup_data">无法将备份数据打包</string>
+    <string name="msg_success_to_upload_backup_data_to_cloud">上传备份数据到云成功</string>
+
+    <string name="perf_use_cpu_affinity_detail">对于非对称的多核CPU，优先使用高频核心。但是，根据设备的不同，性能可能会下降。</string>
+    <string name="pref_use_sh2_cache_detail">启用SH2缓存处理的模拟可以提高兼容性。然而，这将以模拟速度为代价。</string>
+    <string name="pref_auto_state_save_title">启用自动状态保存</string>
+    <string name="pref_auto_state_save_detail">在退出时自动保存状态。下次启动时，可以从保存的点恢复。然而，可能会出现无法成功重现的情况。</string>
+
+    <string name="auto_state_save_data_found">找到自动保存数据！</string>
+    <string name="auto_state_detail">您想加载状态吗？不幸的是，这可能不是非常可靠的。如果它运行得不好，请点击取消。</string>
+
+    <string name="force_feedback">力量反馈</string>
+    <string name="visual_feedback">视觉反馈</string>
+    <string name="show_analog_dpad_switch_button">显示模拟/Dpad切换按钮</string>
+
+    <string name="file_not_found">文件未找到：%1$s</string>
+    <string name="i_o_error_occurred">输入/输出错误：%1$s</string>
+    <string name="read_permission_denied">读取权限被拒绝：%1$s</string>
+    <string name="other_file_error">其他文件错误：%1$s</string>
+    <string name="no_game_file_is_selected">未选择游戏文件</string>
+    <string name="fail_to_open_with">无法使用%2$s打开%1$s</string>
+    <string name="fail_to_open">无法打开%1$s</string>
+
+    <string name="failed_to_initialize">初始化失败</string>
+    <string name="fail_to_get_game_code_this_file_is_not_sega_saturn_game">获取游戏代码失败。该文件不是SEGA Saturn游戏。</string>
+    <string name="fail_to_initialize_emulator">模拟器初始化失败</string>
+    <string name="notification_permission_title">通知权限请求</string>
+    <string name="notification_permission_message">允许通知后，您将收到开发者的消息。</string>
+    <string name="search_games">搜索游戏</string>
+    <string name="sort_by">排序方式</string>
+    <string name="sort_by_name">按名称排序</string>
+    <string name="sort_by_date">按发布日期排序</string>
+    <string name="sort_by_recently_played">按最近玩过排序</string>
+    <string name="report_notice">
+        &lt;h2&gt;发表您的评论！&lt;/h2&gt; &lt;br&gt; 注意：您的评论内容、用户名和个人资料图标将公开显示。发布前请查看&lt;a href="https://www.yabasanshiro.com/privacy"&gt;隐私政策&lt;/a&gt;。
+    </string>
+
+    <!-- Discord Integration Strings -->
+    <string name="discord_logo">Discord 标志</string>
+    <string name="link_discord_account">关联 Discord 账号</string>
+    <string name="discord_link_prompt_title">关联您的 Discord 账号</string>
+    <string name="discord_link_prompt_message">您想关联您的 Discord 账号吗？这将使用您的 Discord 用户名和头像更新您的个人资料。</string>
+    <string name="discord_account_linked">Discord 账号成功关联！</string>
+    <string name="discord_account_link_failed">关联 Discord 账号失败</string>
+    <string name="discord_link_error">Discord 关联错误</string>
+    <string name="discord_link_cancelled">Discord 关联已取消</string>
+    <string name="discord_already_linked">Discord 账号已经关联</string>
+    <string name="discord_unlink_account">解除 Discord 账号关联</string>
+    <string name="discord_unlink_confirm">您确定要解除 Discord 账号关联吗？</string>
+    <string name="discord_account_unlinked">Discord 账号已解除关联</string>
+    <string name="discord_link_title">关联您的 Discord 账号</string>
+    <string name="discord_link_description">关联您的 Discord 账号以在此应用中使用您的 Discord 用户名和头像。</string>
+    <string name="skip_for_now">暂时跳过</string>
+    <string name="menu_link_discord">关联 Discord 账号</string>
+    <string name="first_login_discord_prompt">您想关联您的 Discord 账号吗？</string>
+    <string name="discord_link_prompt_yes">是的，关联账号</string>
+    <string name="discord_link_prompt_no">不，谢谢</string>
+    <string name="discord_oauth_redirect_title">Discord 认证</string>
+    <string name="discord_oauth_processing">正在处理 Discord 账号关联...</string>
+    <string name="account_category">账号</string>
+    <string name="summary_for_discord_login">将您的用户名和头像图片与 Discord 同步。</string>
+    <string name="summary_for_login_to_other">您可以使用显示的 PIN 码登录 Yaba Ssanshiro 的 Windows 版本。</string>
+
+    <string name="delete_account">删除账户</string>
+    <string name="delete_account_summary">删除您的账户及所有相关数据</string>
+    <string name="delete_account_confirmation_title">删除账户</string>
+    <string name="delete_account_confirmation_message">您确定要删除您的账户吗？这将永久删除您的账户及所有相关数据。此操作无法撤销。</string>
+    <string name="account_deleted">账户已成功删除</string>
+    <string name="account_deletion_failed">删除账户失败</string>
+    <string name="discord_link_not_available_on_tv">此功能在 Android TV 上不可用。请使用您的手机或平板电脑。</string>
+
+    <!-- Cloud Game Backup -->
+    <string name="backup_to_cloud">备份到云端</string>
+    <string name="remove_from_cloud">从云端删除</string>
+    <string name="restore_from_cloud">从云端恢复</string>
+    <string name="backup_success">游戏备份成功</string>
+    <string name="backup_failed">游戏备份失败</string>
+    <string name="restore_success">游戏恢复成功</string>
+    <string name="restore_failed">游戏恢复失败</string>
+    <string name="backup_limit_reached">已达到备份限制（最多1个游戏）</string>
+    <string name="legal_warning_title">法律声明</string>
+    <string name="legal_warning_message">此文件应仅用作您拥有的游戏的备份。请遵守您所在国家/地区关于游戏备份的法律。</string>
+    <string name="cloud_only_game">云端可用（点击下载）</string>
+    <string name="download_from_cloud">从云端下载</string>
+    <string name="remove_success">游戏已从云端删除</string>
+    <string name="remove_failed">从云端删除游戏失败</string>
+
+    <!-- Backup Replacement Dialog -->
+    <string name="backup_limit_dialog_title">已达到备份限制</string>
+    <string name="backup_limit_dialog_message">您已达到可以备份的游戏最大数量。请选择要替换的游戏：</string>
+    <string name="replace">替换</string>
+    <string name="backup_date">备份于 %1$s</string>
+    <string name="no_game_selected">请选择要替换的游戏</string>
+    <string name="replace_backup_success">成功替换备份</string>
+    <string name="replace_backup_failed">替换备份失败</string>
 </resources>
-	

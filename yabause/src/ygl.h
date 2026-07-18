@@ -316,7 +316,10 @@ void YglCacheReset(YglTextureManager * tm);
 
 #define VDP2_CC_BLUR  0x04
 
-enum
+#define VDP1_SYSTEM_CLIP 0xFF
+#define VDP1_USER_CLIP 0xFE
+
+typedef enum
 {
    PG_NORMAL=1,
    PG_VDP1_NORMAL,
@@ -324,7 +327,7 @@ enum
    PG_VFP1_GOURAUDSAHDING_SPD,
    PG_VFP1_STARTUSERCLIP,
    PG_VFP1_ENDUSERCLIP,
-   PG_VFP1_HALFTRANS, 
+   PG_VFP1_HALFTRANS,
    PG_VFP1_SHADOW,
    PG_VFP1_GOURAUDSAHDING_HALFTRANS,
    PG_VFP1_HALF_LUMINANCE,
@@ -338,6 +341,7 @@ enum
    PG_VDP2_BLUR,
    PG_VDP2_MOSAIC,
    PG_VDP2_PER_LINE_ALPHA,
+   PG_VDP2_PER_LINE_ALPHA_DST,
    PG_VDP2_NORMAL_CRAM,
    PG_VDP2_NORMAL_CRAM_SPECIAL_PRIORITY,
    PG_VDP2_NORMAL_CRAM_SPECIAL_PRIORITY_COLOROFFSET,
@@ -384,13 +388,32 @@ enum
    PG_VDP2_DRAWFRAMEBUFF_EUQAL_ADD_HBLANK,
    PG_VDP2_DRAWFRAMEBUFF_MORE_ADD_HBLANK,
    PG_VDP2_DRAWFRAMEBUFF_MSB_ADD_HBLANK,
-
    PG_VDP2_DRAWFRAMEBUFF_SHADOW,
-
    PG_VDP2_DRAWFRAMEBUFF_ADDCOLOR_SHADOW,
-
+   PG_VULKAN_WINDOW,
+   PG_VULKAN_BLIT,
+   PG_VDP1_SYSTEM_CLIP,
+   PG_VDP1_USER_CLIP,
+   PG_VFP1_GOURAUDSAHDING_CLIP_INSIDE,
+   PG_VFP1_GOURAUDSAHDING_CLIP_OUTSIDE,
+   PG_VFP1_GOURAUDSAHDING_HALFTRANS_CLIP_INSIDE,
+   PG_VFP1_GOURAUDSAHDING_HALFTRANS_CLIP_OUTSIDE,
+   PG_VFP1_MESH_CLIP_INSIDE,
+   PG_VFP1_MESH_CLIP_OUTSIDE,
+   PG_VFP1_HALF_LUMINANCE_INSIDE,
+   PG_VFP1_HALF_LUMINANCE_OUTSIDE,
+   PG_VFP1_SHADOW_CLIP_INSIDE,
+   PG_VFP1_SHADOW_CLIP_OUTSIDE,
+   PG_VFP1_GOURAUDSAHDING_SPD_CLIP_INSIDE,
+   PG_VFP1_GOURAUDSAHDING_SPD_CLIP_OUTSIDE,
+   PG_VDP2_NORMAL_CRAM_DSTALPHA,
+   PG_NORMAL_DSTALPHA,
+   PG_VDP2_NOBLEND,
+   PG_VDP2_NOBLEND_CRAM,
+   PG_VDP2_BACK,
+   PG_VDP2_CRAM_SPECIAL_PRIORITY,
    PG_MAX,
-};
+} YglPipelineId;
 
 
 
@@ -413,8 +436,8 @@ int Ygl_uniformVdp1CommonParam(void * p);
 int Ygl_cleanupVdp1CommonParam(void * p);
 
 // std140
-typedef struct  { 
- float u_pri[8*4];  
+typedef struct  {
+ float u_pri[8*4];
  float u_alpha[8*4];
  float u_coloroffset[4];
  float u_cctll;
@@ -423,6 +446,9 @@ typedef struct  {
  int u_color_ram_offset;
  float u_viewport_offset;
  int u_sprite_window;
+ float u_from;
+ float u_to;
+ int u_dir;
 } UniformFrameBuffer;
 
 /*
@@ -465,6 +491,7 @@ typedef struct {
    int colornumber;
    GLuint interuput_texture;
    u32 specialcolormode;
+   int tessellation_level;  // Dynamic tessellation level
 } YglProgram;
 
 typedef struct {
@@ -545,6 +572,8 @@ typedef struct {
    int st;
    char message[512];
    int msglength;
+   int user_originx;
+   int user_originy;
    int originx;
    int originy;
    unsigned int width;
@@ -554,13 +583,13 @@ typedef struct {
    float clear_r;
    float clear_g;
    float clear_b;
-   
+
    // VDP1 Info
    int vdp1_maxpri;
    int vdp1_minpri;
    u32 vdp1_lineTexture;
    int vdp1_hasMesh;
-   
+
    // VDP1 Framebuffer
    int rwidth;
    int rheight;
@@ -606,7 +635,7 @@ typedef struct {
 
    // Thread
    YabMutex * mutex;
-   
+
    u32 lincolor_tex;
    u32 linecolor_pbo;
    u32 * lincolor_buf;
@@ -677,6 +706,12 @@ typedef struct {
   float rotate_mval_v;
 } RBGDrawInfo;
 
+void RBGGenerator_init(int width, int height);
+void RBGGenerator_resize(int width, int height);
+void RBGGenerator_update(RBGDrawInfo * rbg );
+GLuint RBGGenerator_getTexture( int id ) ;
+void RBGGenerator_onFinish();
+
 int YglGLInit(int, int);
 int YglInit(int, int, unsigned int);
 void YglDeInit(void);
@@ -702,7 +737,7 @@ void YglCacheTriangleGrowShading(YglSprite * input, float * colors, YglCache * c
 u32 * YglGetPerlineBuf(YglPerLineInfo * perline, int linecount,int depth );
 void YglSetPerlineBuf(YglPerLineInfo * perline, u32 * pbuf, int linecount, int depth);
 
-// 0.. no belnd, 1.. Alpha, 2.. Add 
+// 0.. no belnd, 1.. Alpha, 2.. Add
 int YglSetLevelBlendmode( int pri, int mode );
 
 void Ygl_uniformVDP2DrawFramebuffer_linecolor(void * p, float from, float to, float * offsetcol);
@@ -827,17 +862,17 @@ extern PFNGLUNIFORMMATRIX4FVPROC glUniformMatrix4fv;
 
 /*
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|S|C|A|A|A|P|P|P|s| | | | | | | |
+|S|C|A|A|A|P|P|P|s|w| | | | | | |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 S show flag
 C index or direct color
 A alpha index
 P priority
 s Shadow Flag
-
+W sprite window flag
 */
-static INLINE u32 VDP1COLOR(u32 C, u32 A, u32 P, u32 shadow, u32 color) {
-  return 0x80000000 | (C << 30) | (A << 27) | (P << 24) | (shadow << 23) | color;
+static INLINE u32 VDP1COLOR(u32 C, u32 A, u32 P, u32 shadow, u32 window, u32 color) {
+  return 0x80000000 | (C << 30) | (A << 27) | (P << 24) | (shadow << 23) | (window<<22) | color;
 }
 
 static INLINE u32 VDP1COLOR16TO24(u16 temp) {
@@ -850,6 +885,7 @@ int YglDrawBackScreen(float w, float h);
 
 u32 Vdp2ColorRamGetColor(u32 colorindex, int alpha);
 
+void YglRebuildGramebuffer();
 
 #endif // YGL_H
 
