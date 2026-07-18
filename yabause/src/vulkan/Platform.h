@@ -45,10 +45,16 @@ void InitPlatform();
 void DeInitPlatform();
 void AddRequiredPlatformInstanceExtensions(std::vector<const char *> *instance_extensions);
 void AddRequiredPlatformDeviceExtensions(std::vector<const char*>* device_extensions);
-// GLFW
-#if BUILD_USE_GLFW
+// libretro: no OS window backend; the frontend owns the Vulkan instance,
+// device and presentation, so pull in only the core Vulkan API.
+#if defined(__LIBRETRO__)
 
-// Define as a build option 
+#include <vulkan/vulkan.h>
+
+// GLFW
+#elif BUILD_USE_GLFW
+
+// Define as a build option
 #define USE_FRAMEWORK_GLFW 1
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -85,7 +91,7 @@ void AddRequiredPlatformDeviceExtensions(std::vector<const char*>* device_extens
 #error Platform not yet supported
 #endif
 
-#if defined(HAVE_LIBSDL2) 
+#if defined(HAVE_LIBSDL2) && !defined(__LIBRETRO__)
 
 #include <SDL.h>
 #include <SDL_vulkan.h>
