@@ -23,6 +23,36 @@
 
 #define _GNU_SOURCE
 #include <string.h>
+
+/* Upstream defines fopen_utf8() in cdbase.c, which the libretro port
+ * replaces with this file, so provide the definition here. */
+#include <stdio.h>
+#include <stdlib.h>
+#if defined(_WIN32)
+#include <wchar.h>
+#include <windows.h>
+FILE* fopen_utf8(const char* utf8_filename, const char* mode)
+{
+  FILE* file;
+  wchar_t *wfilename, *wmode;
+  int len = MultiByteToWideChar(CP_UTF8, 0, utf8_filename, -1, NULL, 0);
+  if (len == 0) return NULL;
+  wfilename = (wchar_t*)malloc(len * sizeof(wchar_t));
+  MultiByteToWideChar(CP_UTF8, 0, utf8_filename, -1, wfilename, len);
+  len = MultiByteToWideChar(CP_UTF8, 0, mode, -1, NULL, 0);
+  wmode = (wchar_t*)malloc(len * sizeof(wchar_t));
+  MultiByteToWideChar(CP_UTF8, 0, mode, -1, wmode, len);
+  file = _wfopen(wfilename, wmode);
+  free(wfilename);
+  free(wmode);
+  return file;
+}
+#else
+FILE* fopen_utf8(const char* utf8_filename, const char* mode)
+{
+  return fopen(utf8_filename, mode);
+}
+#endif
 #include <stdlib.h>
 #include <assert.h>
 #include <ctype.h>

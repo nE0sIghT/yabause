@@ -168,7 +168,7 @@ static int g_scsp_main_mode = 0;
 
 #include "sh2core.h"
 
-std::atomic<u32> m68kcycle = 0;
+std::atomic<u32> m68kcycle(0);
 
 extern "C" {
   extern volatile u64 saved_m68k_cycles;
@@ -5728,7 +5728,7 @@ extern "C" void * ScspAsynMainRealtime(void * p) {
           tm.tv_sec += 1;
         }
         pthread_mutex_lock(&sync_mutex);
-        int rtn = pthread_cond_timedwait(&sync_cnd,&sync_mutex,(const struct timespec * restrict)ctime((time_t *)&tm));
+        int rtn = pthread_cond_timedwait(&sync_cnd, &sync_mutex, &tm);
         if(rtn == 0){
           for (i = 0; i < samplecnt; i += step) {
             MM68KExec(step);

@@ -391,7 +391,8 @@ void SH2DynShowSttaics(SH2_struct * master, SH2_struct * slave ){
 // MemoyAcess from DynarecCPU
 //********************************************************************
 
-#if defined(__arm__) || defined(__aarch64__)
+#if defined(__JETSON__) || defined(__N2__) || defined(__XU4__) || defined(__RP64__) \
+ || defined(__arm__) || defined(__aarch64__)
 #pragma GCC push_options
 #pragma GCC optimize ("O1")
 #endif
@@ -749,7 +750,8 @@ u32 memGetLong(u32 addr)
   return val;
 }
 
-#if defined(__arm__) || defined(__aarch64__)
+#if defined(__JETSON__) || defined(__N2__) || defined(__XU4__) || defined(__RP64__) \
+ || defined(__arm__) || defined(__aarch64__)
 #pragma GCC pop_options
 #endif
 

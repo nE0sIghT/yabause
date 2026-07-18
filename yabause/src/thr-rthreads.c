@@ -27,6 +27,8 @@
 
 #include "core.h"
 #include "threads.h"
+#include <time.h>
+#include <retro_timers.h>
 #include "rthreads/rthreads.h"
 #include <stdlib.h>
 
@@ -296,3 +298,16 @@ YabMutex * YabThreadCreateMutex()
 }
 
 //////////////////////////////////////////////////////////////////////////////
+
+int YabNanosleep(u64 ns)
+{
+#ifdef _WIN32
+   retro_sleep((unsigned)(ns / 1000000));
+#else
+   struct timespec ts;
+   ts.tv_sec  = 0;
+   ts.tv_nsec = ns * 1000;
+   nanosleep(&ts, NULL);
+#endif
+   return 0;
+}
