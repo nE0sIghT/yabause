@@ -81,6 +81,7 @@ public:
   VkImageView imageView = VK_NULL_HANDLE;
   VkSampler sampler = VK_NULL_HANDLE;
   void create(VIDVulkan * vulkan, int width, int height);
+  void destroy(VkDevice device);
   void update(VIDVulkan * vulkan, VkCommandBuffer commandBuffer);
   u32* dynamicBuf = nullptr;
 };
@@ -373,8 +374,8 @@ protected:
     VkDeviceMemory vertexBufferMemory = VK_NULL_HANDLE;
     VkBuffer indexBuffer = VK_NULL_HANDLE;
     VkDeviceMemory indexBufferMemory = VK_NULL_HANDLE;
-    VdpPipelineBlit * blit;
-    VdpPipelineMosaic * mosaic;
+    VdpPipelineBlit * blit = nullptr;
+    VdpPipelineMosaic * mosaic = nullptr;
   } offscreenRenderer;
 
 

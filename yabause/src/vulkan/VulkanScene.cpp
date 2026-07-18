@@ -98,6 +98,11 @@ void VulkanScene::deInit(void)
   vkDestroySemaphore(device, _render_complete_semaphore, nullptr);
   _render_complete_semaphore = VK_NULL_HANDLE;
 
+  for (VkFence fence : commandFence) {
+    if (fence != VK_NULL_HANDLE) vkDestroyFence(device, fence, nullptr);
+  }
+  commandFence.clear();
+
 
 }
 
@@ -169,6 +174,15 @@ void VulkanScene::createCommandPool()
   }
 
   if (_command_pool != VK_NULL_HANDLE) vkDestroyCommandPool(device, _command_pool, nullptr);
+
+  if (_render_complete_semaphore != VK_NULL_HANDLE) {
+    vkDestroySemaphore(device, _render_complete_semaphore, nullptr);
+    _render_complete_semaphore = VK_NULL_HANDLE;
+  }
+  for (VkFence fence : commandFence) {
+    if (fence != VK_NULL_HANDLE) vkDestroyFence(device, fence, nullptr);
+  }
+  commandFence.clear();
 
     VkCommandPoolCreateInfo pool_create_info{};
     pool_create_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;

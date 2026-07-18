@@ -38,6 +38,7 @@ TextureManager::~TextureManager() {
 
   vkFreeCommandBuffers(device, commandPool, commandBuffers.size(), commandBuffers.data());
   vkDestroyCommandPool(device, commandPool, nullptr);
+  vkDestroySemaphore(device, complete, nullptr);
 }
 
 int TextureManager::init(unsigned int w, unsigned int h) {

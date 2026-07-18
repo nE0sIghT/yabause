@@ -49,9 +49,10 @@ VkShaderModule ShaderManager::getShader(uint32_t id) {
 
 ShaderManager::~ShaderManager() {
   const VkDevice device = vulkan->getDevice();
-  for (int i = 0; i < shaders.size(); i++) {
-    vkDestroyShaderModule(device, shaders[i], nullptr);
+  for (const auto &shader : shaders) {
+    vkDestroyShaderModule(device, shader.second, nullptr);
   }
+  shaders.clear();
 }
 
 
@@ -376,6 +377,18 @@ VdpPipeline::~VdpPipeline() {
     vkDestroyPipeline(device, _graphicsPipeline, nullptr);
     _graphicsPipeline = VK_NULL_HANDLE;
   }
+
+  for (UniformBuffer &buffer : ubuffer) {
+    if (buffer._uniformBuffer != VK_NULL_HANDLE) {
+      vkDestroyBuffer(device, buffer._uniformBuffer, nullptr);
+      buffer._uniformBuffer = VK_NULL_HANDLE;
+    }
+    if (buffer._uniformBufferMemory != VK_NULL_HANDLE) {
+      vkFreeMemory(device, buffer._uniformBufferMemory, nullptr);
+      buffer._uniformBufferMemory = VK_NULL_HANDLE;
+    }
+  }
+  ubuffer.clear();
 
 }
 
@@ -2223,4 +2236,3 @@ VdpRbgCramLinePipeline::VdpRbgCramLinePipeline(VIDVulkan * vulkan, TextureManage
     }
     )S";
 }
-

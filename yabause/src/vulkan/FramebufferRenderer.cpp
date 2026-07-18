@@ -226,6 +226,35 @@ FramebufferRenderer::FramebufferRenderer(VIDVulkan * vulkan) {
 }
 
 FramebufferRenderer::~FramebufferRenderer() {
+  const VkDevice device = vulkan->getDevice();
+
+  for (const auto &entry : pipelines) {
+    if (entry.second != VK_NULL_HANDLE) {
+      vkDestroyPipeline(device, entry.second, nullptr);
+    }
+  }
+  pipelines.clear();
+
+  if (_graphicsPipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, _graphicsPipeline, nullptr);
+  if (_vertShaderModule != VK_NULL_HANDLE) vkDestroyShaderModule(device, _vertShaderModule, nullptr);
+  if (_fragShaderModule != VK_NULL_HANDLE) vkDestroyShaderModule(device, _fragShaderModule, nullptr);
+  if (_pipelineLayout != VK_NULL_HANDLE) vkDestroyPipelineLayout(device, _pipelineLayout, nullptr);
+  if (_descriptorPool != VK_NULL_HANDLE) vkDestroyDescriptorPool(device, _descriptorPool, nullptr);
+  if (_descriptorSetLayout != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(device, _descriptorSetLayout, nullptr);
+  if (sampler != VK_NULL_HANDLE) vkDestroySampler(device, sampler, nullptr);
+
+  for (UniformBuffer &buffer : ubuffer) {
+    if (buffer.buf != VK_NULL_HANDLE) vkDestroyBuffer(device, buffer.buf, nullptr);
+    if (buffer.mem != VK_NULL_HANDLE) vkFreeMemory(device, buffer.mem, nullptr);
+  }
+  ubuffer.clear();
+
+  if (_vertexBuffer != VK_NULL_HANDLE) vkDestroyBuffer(device, _vertexBuffer, nullptr);
+  if (_vertexBufferMemory != VK_NULL_HANDLE) vkFreeMemory(device, _vertexBufferMemory, nullptr);
+  if (_indexBuffer != VK_NULL_HANDLE) vkDestroyBuffer(device, _indexBuffer, nullptr);
+  if (_indexBufferMemory != VK_NULL_HANDLE) vkFreeMemory(device, _indexBufferMemory, nullptr);
+
+  perline.destroy(device);
 
 }
 
@@ -1388,8 +1417,10 @@ VkPipeline FramebufferRenderer::compileShader(const char * code, const char * na
 
   VkPipeline graphicsPipeline;;
   if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &graphicsPipeline) != VK_SUCCESS) {
+    vkDestroyShaderModule(device, shaderModule, nullptr);
     throw std::runtime_error("failed to create graphics pipeline!");
   }
+  vkDestroyShaderModule(device, shaderModule, nullptr);
 
   string key = name;
   key += std::to_string(c);
@@ -1910,7 +1941,5 @@ void FramebufferRenderer::updateDescriptorSets(int index) {
 
   vkUpdateDescriptorSets(device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
 }
-
-
 
 

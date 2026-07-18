@@ -311,7 +311,12 @@ int VIDVulkan::init(void) {
 }
 
 void VIDVulkan::deInit(void) {
-  pipleLineFactory->flushPipeLineCache(this->getDevice());
+  const VkDevice device = this->getDevice();
+  vkDeviceWaitIdle(device);
+
+  if (pipleLineFactory != nullptr) {
+    pipleLineFactory->flushPipeLineCache(device);
+  }
 
   if (vdp1 != nullptr) {
     delete vdp1;
@@ -323,6 +328,11 @@ void VIDVulkan::deInit(void) {
     windowRenderer = nullptr;
   }
 
+  if (fbRender != nullptr) {
+    delete fbRender;
+    fbRender = nullptr;
+  }
+
   if (rbgGenerator != nullptr) {
     delete rbgGenerator;
     rbgGenerator = nullptr;
@@ -331,6 +341,31 @@ void VIDVulkan::deInit(void) {
   if (backPiepline != nullptr) {
     delete backPiepline;
     backPiepline = nullptr;
+  }
+
+  if (offscreenRenderer.blit != nullptr) {
+    delete offscreenRenderer.blit;
+    offscreenRenderer.blit = nullptr;
+  }
+  if (offscreenRenderer.mosaic != nullptr) {
+    delete offscreenRenderer.mosaic;
+    offscreenRenderer.mosaic = nullptr;
+  }
+  if (offscreenRenderer.vertexBuffer != VK_NULL_HANDLE) {
+    vkDestroyBuffer(device, offscreenRenderer.vertexBuffer, nullptr);
+    offscreenRenderer.vertexBuffer = VK_NULL_HANDLE;
+  }
+  if (offscreenRenderer.vertexBufferMemory != VK_NULL_HANDLE) {
+    vkFreeMemory(device, offscreenRenderer.vertexBufferMemory, nullptr);
+    offscreenRenderer.vertexBufferMemory = VK_NULL_HANDLE;
+  }
+  if (offscreenRenderer.indexBuffer != VK_NULL_HANDLE) {
+    vkDestroyBuffer(device, offscreenRenderer.indexBuffer, nullptr);
+    offscreenRenderer.indexBuffer = VK_NULL_HANDLE;
+  }
+  if (offscreenRenderer.indexBufferMemory != VK_NULL_HANDLE) {
+    vkFreeMemory(device, offscreenRenderer.indexBufferMemory, nullptr);
+    offscreenRenderer.indexBufferMemory = VK_NULL_HANDLE;
   }
 
   deleteOfscreenPath();
@@ -377,6 +412,13 @@ void VIDVulkan::deInit(void) {
   if (pipleLineFactory != nullptr) {
     delete pipleLineFactory;
     pipleLineFactory = nullptr;
+  }
+
+  cram.destroy(device);
+  lineColor.destroy(device);
+  backColor.destroy(device);
+  for (DynamicTexture &texture : perline) {
+    texture.destroy(device);
   }
   ShaderManager::free();
 
@@ -6104,6 +6146,27 @@ void DynamicTexture::create(VIDVulkan *vulkan, int texWidth, int texHeight) {
   vkMapMemory(device, stagingBufferMemory, 0, imageSize, 0, (void **)&dynamicBuf);
 }
 
+void DynamicTexture::destroy(VkDevice device) {
+  if (stagingBufferMemory != VK_NULL_HANDLE && dynamicBuf != nullptr) {
+    vkUnmapMemory(device, stagingBufferMemory);
+  }
+  dynamicBuf = nullptr;
+
+  if (sampler != VK_NULL_HANDLE) vkDestroySampler(device, sampler, nullptr);
+  if (imageView != VK_NULL_HANDLE) vkDestroyImageView(device, imageView, nullptr);
+  if (image != VK_NULL_HANDLE) vkDestroyImage(device, image, nullptr);
+  if (memory != VK_NULL_HANDLE) vkFreeMemory(device, memory, nullptr);
+  if (stagingBuffer != VK_NULL_HANDLE) vkDestroyBuffer(device, stagingBuffer, nullptr);
+  if (stagingBufferMemory != VK_NULL_HANDLE) vkFreeMemory(device, stagingBufferMemory, nullptr);
+
+  sampler = VK_NULL_HANDLE;
+  imageView = VK_NULL_HANDLE;
+  image = VK_NULL_HANDLE;
+  memory = VK_NULL_HANDLE;
+  stagingBuffer = VK_NULL_HANDLE;
+  stagingBufferMemory = VK_NULL_HANDLE;
+}
+
 void VIDVulkan::onUpdateColorRamWord(u32 addr) {
   YabThreadLock(crammutex);
   Vdp2ColorRamUpdated = 1;
@@ -6226,24 +6289,24 @@ void VIDVulkan::generateOffscreenPath(int width, int height) {
   VkDevice device = getDevice();
   VkPhysicalDevice physicalDevice = getPhysicalDevice();
 
-  deleteOfscreenPath();
-
   int pretransformFlag = _renderer->getWindow()->GetPreTransFlag();
+  int targetWidth = width;
+  int targetHeight = height;
   if (pretransformFlag & VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR ||
         pretransformFlag & VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR) {
-
-      if (offscreenPass.height == width && offscreenPass.width == height)
-        return;
-      offscreenPass.width = height;
-      offscreenPass.height = width;
-
-  } else {
-
-      if (offscreenPass.width == width && offscreenPass.height == height)
-        return;
-      offscreenPass.width = width;
-      offscreenPass.height = height;
+    targetWidth = height;
+    targetHeight = width;
   }
+
+  if (offscreenPass.width == targetWidth &&
+      offscreenPass.height == targetHeight &&
+      offscreenPass.frameBuffer != VK_NULL_HANDLE &&
+      offscreenPass.renderPass != VK_NULL_HANDLE)
+    return;
+
+  deleteOfscreenPath();
+  offscreenPass.width = targetWidth;
+  offscreenPass.height = targetHeight;
 
   // Color attachment
   VkImageCreateInfo image = {};
@@ -6520,16 +6583,40 @@ void VIDVulkan::generateOffscreenRenderer() {
 void VIDVulkan::deleteOfscreenPath() {
   VkDevice device = getDevice();
   if (offscreenPass.frameBuffer != VK_NULL_HANDLE) {
-    vkDestroySampler(device, offscreenPass.sampler, nullptr);
-    offscreenPass.sampler = VK_NULL_HANDLE;
-    vkDestroyImage(device, offscreenPass.image, nullptr);
-    offscreenPass.image = VK_NULL_HANDLE;
-    vkFreeMemory(device, offscreenPass.mem, nullptr);
-    offscreenPass.mem = VK_NULL_HANDLE;
-    vkDestroyImageView(device, offscreenPass.view, nullptr);
-    offscreenPass.view = VK_NULL_HANDLE;
     vkDestroyFramebuffer(device, offscreenPass.frameBuffer, nullptr);
     offscreenPass.frameBuffer = VK_NULL_HANDLE;
+  }
+  if (offscreenPass.sampler != VK_NULL_HANDLE) {
+    vkDestroySampler(device, offscreenPass.sampler, nullptr);
+    offscreenPass.sampler = VK_NULL_HANDLE;
+  }
+  if (offscreenPass.view != VK_NULL_HANDLE) {
+    vkDestroyImageView(device, offscreenPass.view, nullptr);
+    offscreenPass.view = VK_NULL_HANDLE;
+  }
+  if (offscreenPass.image != VK_NULL_HANDLE) {
+    vkDestroyImage(device, offscreenPass.image, nullptr);
+    offscreenPass.image = VK_NULL_HANDLE;
+  }
+  if (offscreenPass.mem != VK_NULL_HANDLE) {
+    vkFreeMemory(device, offscreenPass.mem, nullptr);
+    offscreenPass.mem = VK_NULL_HANDLE;
+  }
+  if (offscreenPass.depth.view != VK_NULL_HANDLE) {
+    vkDestroyImageView(device, offscreenPass.depth.view, nullptr);
+    offscreenPass.depth.view = VK_NULL_HANDLE;
+  }
+  if (offscreenPass.depth.image != VK_NULL_HANDLE) {
+    vkDestroyImage(device, offscreenPass.depth.image, nullptr);
+    offscreenPass.depth.image = VK_NULL_HANDLE;
+  }
+  if (offscreenPass.depth.mem != VK_NULL_HANDLE) {
+    vkFreeMemory(device, offscreenPass.depth.mem, nullptr);
+    offscreenPass.depth.mem = VK_NULL_HANDLE;
+  }
+  if (offscreenPass.renderPass != VK_NULL_HANDLE) {
+    vkDestroyRenderPass(device, offscreenPass.renderPass, nullptr);
+    offscreenPass.renderPass = VK_NULL_HANDLE;
   }
 }
 
@@ -7005,6 +7092,11 @@ void VIDVulkan::freeSubRenderTarget() {
 
   vkQueueWaitIdle(getVulkanQueue());
   VkDevice device = getDevice();
+
+  if (subRenderTarget.color._render_complete_semaphore != VK_NULL_HANDLE) {
+    vkDestroySemaphore(device, subRenderTarget.color._render_complete_semaphore, nullptr);
+    subRenderTarget.color._render_complete_semaphore = VK_NULL_HANDLE;
+  }
 
   if (subRenderTarget.sampler != VK_NULL_HANDLE) {
     vkDestroySampler(device, subRenderTarget.sampler, nullptr);

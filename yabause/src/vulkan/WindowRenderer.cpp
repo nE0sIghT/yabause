@@ -181,11 +181,25 @@ int Vdp2Window::updateSize(int width, int height, int pretransformFlag, bool rot
 
 int Vdp2Window::free() {
   delete pipeline;
+  pipeline = nullptr;
+  if (vulkan == nullptr) return 0;
   VkDevice device = vulkan->getDevice();
-  vkDestroyBuffer(device, vertexBuffer, nullptr);
-  vkFreeMemory(device, vertexBufferMemory, nullptr);
-  vkDestroyBuffer(device, stagingBuffer, nullptr);
-  vkFreeMemory(device, stagingBufferMemory, nullptr);
+  if (stagingBufferMemory != VK_NULL_HANDLE && vertex != nullptr) {
+    vkUnmapMemory(device, stagingBufferMemory);
+    vertex = nullptr;
+  }
+  if (vertexBuffer != VK_NULL_HANDLE) vkDestroyBuffer(device, vertexBuffer, nullptr);
+  if (vertexBufferMemory != VK_NULL_HANDLE) vkFreeMemory(device, vertexBufferMemory, nullptr);
+  if (stagingBuffer != VK_NULL_HANDLE) vkDestroyBuffer(device, stagingBuffer, nullptr);
+  if (stagingBufferMemory != VK_NULL_HANDLE) vkFreeMemory(device, stagingBufferMemory, nullptr);
+  if (info != nullptr) {
+    ::free(info);
+    info = nullptr;
+  }
+  vertexBuffer = VK_NULL_HANDLE;
+  vertexBufferMemory = VK_NULL_HANDLE;
+  stagingBuffer = VK_NULL_HANDLE;
+  stagingBufferMemory = VK_NULL_HANDLE;
   return 0;
 }
 
@@ -219,20 +233,30 @@ void WindowRenderer::setUp() {
 }
 
 WindowRenderer::~WindowRenderer() {
+  VkDevice device = vulkan->getDevice();
+
+  window[0].free();
+  window[1].free();
+
+  if (_command_pool != VK_NULL_HANDLE) {
+    vkDestroyCommandPool(device, _command_pool, nullptr);
+    _command_pool = VK_NULL_HANDLE;
+    command_buffers.clear();
+  }
 
 #if (WINDOW_CLIP_MODE == WINDOW_CLIP_OFFSCRENN)
-  VkDevice device = vulkan->getDevice();
   if (offscreenPass.sampler) {
     vkDestroySampler(device, offscreenPass.sampler, nullptr);
     offscreenPass.sampler = nullptr;
   }
+  vkDestroyFramebuffer(device, offscreenPass.frameBuffer, nullptr);
+  vkDestroyImageView(device, offscreenPass.color.view, nullptr);
   vkDestroyImage(device, offscreenPass.color.image, nullptr);
   vkFreeMemory(device, offscreenPass.color.mem, nullptr);
-  vkDestroyImageView(device, offscreenPass.color.view, nullptr);
+  vkDestroyImageView(device, offscreenPass.depth.view, nullptr);
   vkDestroyImage(device, offscreenPass.depth.image, nullptr);
   vkFreeMemory(device, offscreenPass.depth.mem, nullptr);
-  vkDestroyImageView(device, offscreenPass.depth.view, nullptr);
-  vkDestroyFramebuffer(device, offscreenPass.frameBuffer, nullptr);
+  vkDestroyRenderPass(device, offscreenPass.renderPass, nullptr);
 #endif
 
 }

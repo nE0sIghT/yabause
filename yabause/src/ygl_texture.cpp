@@ -2730,7 +2730,7 @@ RBGGeneratorVulkan::~RBGGeneratorVulkan() {
     }
 
     // Destroy pipeline resources
-    if (pipelineLayout) device.destroyPipelineLayout(pipelineLayout);
+    if (pipeline) device.destroyPipeline(pipeline);
     if (descriptorPool) device.destroyDescriptorPool(descriptorPool);
     if (descriptorSetLayout) device.destroyDescriptorSetLayout(descriptorSetLayout);
     if (sampler) device.destroySampler(sampler);
@@ -2893,6 +2893,8 @@ RBGGeneratorVulkan::~RBGGeneratorVulkan() {
     if (prg_rbg_3_2w_p1_32bpp_line_) device.destroyPipeline(prg_rbg_3_2w_p1_32bpp_line_);
     if (prg_rbg_3_2w_p2_32bpp_line_) device.destroyPipeline(prg_rbg_3_2w_p2_32bpp_line_);
 
+    if (pipelineLayout) device.destroyPipelineLayout(pipelineLayout);
+
 
   }
 }
@@ -2917,7 +2919,6 @@ int RBGGeneratorVulkan::init(VIDVulkan * vulkan, int width, int height) {
   for( int i=0; i<MAX_RBG_RENDER; i++ ){
     semaphores[i].ready = d.createSemaphore({});
     semaphores[i].complete = d.createSemaphore({});
-    commandfence[i] = d.createFence( vk::FenceCreateInfo() );
     commandfence[i] = d.createFence( vk::FenceCreateInfo() );
   }
 
@@ -3328,8 +3329,6 @@ vk::Pipeline RBGGeneratorVulkan::compile_color_dot(
   if (vkCreateShaderModule(device, &createInfo, nullptr, &shaderModule) != VK_SUCCESS) {
     throw std::runtime_error("failed to create shader module!");
   }
-
-  pipelineLayout = d.createPipelineLayout({ {}, 1, &descriptorSetLayout });
 
   try {
       vk::ComputePipelineCreateInfo computePipelineCreateInfo;
