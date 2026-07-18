@@ -78,6 +78,11 @@ static int addon_cart_type = CART_DRAM32MBIT;
 static int g_resolution_mode = RES_ORIGINAL;
 static int resolution_mode = RES_ORIGINAL;
 static int polygon_mode = PERSPECTIVE_CORRECTION;
+static int g_use_sh2_cache = 1;
+static int g_video_filter = AA_NONE;
+static int g_rotate_screen = 0;
+static int g_scsp_main_mode = 0;
+static int g_scsp_sync_per_frame = 1;
 static bool rendering_started = false;
 static int pad_type[12] = {1,1,1,1,1,1,1,1,1,1,1,1};
 static int multitap[2] = {0,0};
@@ -111,6 +116,11 @@ void retro_set_environment(retro_environment_t cb)
 #ifdef DYNAREC_DEVMIYAX
       { "yabasanshiro_sh2coretype", "SH2 Core (restart); dynarec|interpreter" },
 #endif
+      { "yabasanshiro_sh2_cache", "SH2 Cache Emulation (restart); enabled|disabled" },
+      { "yabasanshiro_video_filter", "Video Filter; none|bilinear|fxaa|scanlines" },
+      { "yabasanshiro_rotate_screen", "Rotate Screen (native resolution only); disabled|enabled" },
+      { "yabasanshiro_scsp_main_mode", "SCSP Threading (restart); synced|realtime" },
+      { "yabasanshiro_scsp_sync_per_frame", "SCSP Syncs Per Frame (restart); 1|2|4|8" },
       { "yabasanshiro_polygon_mode", "Polygon Mode (restart); perspective_correction|gpu_tesselation|cpu_tesselation" },
       { "yabasanshiro_resolution_mode", "Resolution Mode (restart); original|2x|4x|720p|1080p|4k" },
       { "yabasanshiro_rbg_resolution_mode", "RGB resolution mode; original|2x|720p|1080p|Fit_to_emulation" },
@@ -744,6 +754,59 @@ void check_variables(void)
          g_frame_skip = 0;
    }
 
+   var.key = "yabasanshiro_sh2_cache";
+   var.value = NULL;
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      if (strcmp(var.value, "enabled") == 0)
+         g_use_sh2_cache = 1;
+      else if (strcmp(var.value, "disabled") == 0)
+         g_use_sh2_cache = 0;
+   }
+
+   var.key = "yabasanshiro_video_filter";
+   var.value = NULL;
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      if (strcmp(var.value, "none") == 0)
+         g_video_filter = AA_NONE;
+      else if (strcmp(var.value, "bilinear") == 0)
+         g_video_filter = AA_BILNEAR_FILTER;
+      else if (strcmp(var.value, "fxaa") == 0)
+         g_video_filter = AA_FXAA;
+      else if (strcmp(var.value, "scanlines") == 0)
+         g_video_filter = AA_SCANLINE_FILTER;
+   }
+
+   var.key = "yabasanshiro_rotate_screen";
+   var.value = NULL;
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      if (strcmp(var.value, "enabled") == 0)
+         g_rotate_screen = 1;
+      else if (strcmp(var.value, "disabled") == 0)
+         g_rotate_screen = 0;
+   }
+
+   var.key = "yabasanshiro_scsp_main_mode";
+   var.value = NULL;
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      if (strcmp(var.value, "synced") == 0)
+         g_scsp_main_mode = 0;
+      else if (strcmp(var.value, "realtime") == 0)
+         g_scsp_main_mode = 1;
+   }
+
+   var.key = "yabasanshiro_scsp_sync_per_frame";
+   var.value = NULL;
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      int n = atoi(var.value);
+      if (n >= 1 && n <= 8)
+         g_scsp_sync_per_frame = n;
+   }
+
    var.key = "yabasanshiro_rbg_resolution_mode";
    var.value = NULL;
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
@@ -1044,20 +1107,26 @@ bool retro_load_game_common()
 #endif
    yinit.mpegpath                  = NULL;
    yinit.frameskip                 = g_frame_skip;
+   /* The frontend owns pacing (including fast-forward); never let the
+    * core's internal frame limiter sleep/spin per frame. */
+   yinit.framelimit                = 1;
+   /* Upstream gates SH2 cache emulation behind this flag now; all of its
+    * frontends enable it, and the pre-merge code had no such gate. */
+   yinit.use_sh2_cache             = g_use_sh2_cache;
    yinit.rbg_resolution_mode       = g_rbg_resolution_mode;
    yinit.rbg_use_compute_shader    = g_rbg_use_compute_shader;
    yinit.usethreads                = 0;
-   yinit.rotate_screen             = 0;
    yinit.skip_load                 = 0;
    yinit.polygon_generation_mode   = polygon_mode;
    yinit.extend_backup             = 0;
    yinit.buppath                   = bup_path;
    yinit.use_new_scsp              = 1;
-   yinit.scsp_sync_count_per_frame = 1;
+   yinit.scsp_sync_count_per_frame = g_scsp_sync_per_frame;
    yinit.extend_backup             = 1;
-   yinit.scsp_main_mode            = 0;
+   yinit.scsp_main_mode            = g_scsp_main_mode;
    yinit.videoformattype           = VIDEOFORMATTYPE_NTSC;
-   yinit.video_filter_type         = 0;
+   yinit.video_filter_type         = g_video_filter;
+   yinit.rotate_screen             = g_rotate_screen;
 
    return true;
 }
@@ -1459,11 +1528,13 @@ void retro_run(void)
       //VIDCore->SetSettingValue(VDP_SETTING_POLYGON_MODE, polygon_mode);
       VIDCore->SetSettingValue(VDP_SETTING_RBG_RESOLUTION_MODE, g_rbg_resolution_mode);
       VIDCore->SetSettingValue(VDP_SETTING_RBG_USE_COMPUTESHADER, g_rbg_use_compute_shader);
+      VIDCore->SetSettingValue(VDP_SETTING_FILTERMODE, g_video_filter);
+      VIDCore->SetSettingValue(VDP_SETTING_ROTATE_SCREEN, g_rotate_screen);
       if(PERCore && (prev_multitap[0] != multitap[0] || prev_multitap[1] != multitap[1]))
          PERCore->Init();
    }
 
-   if (environ_cb(RETRO_ENVIRONMENT_GET_FASTFORWARDING, &fastforward) && fastforward)
+   if (environ_cb(RETRO_ENVIRONMENT_GET_FASTFORWARDING, &fastforward))
    {
       if (g_frame_skip == 1 && !fastforward)
          EnableAutoFrameSkip();
