@@ -17,6 +17,8 @@
 
 #include <file/file_path.h>
 
+#include "libretro_core_options.h"
+
 #include "vdp1.h"
 #include "vdp2.h"
 #include "peripheral.h"
@@ -115,33 +117,6 @@ extern struct retro_hw_render_callback hw_render;
 
 void retro_set_environment(retro_environment_t cb)
 {
-   static const struct retro_variable vars[] = {
-      { "yabasanshiro_force_hle_bios", "Force HLE BIOS (restart); disabled|enabled" },
-#ifdef HAVE_VULKAN
-      { "yabasanshiro_renderer", "Renderer (restart); vulkan|opengl" },
-#endif
-      { "yabasanshiro_frameskip", "Auto-frameskip; enabled|disabled" },
-      { "yabasanshiro_addon_cart", "Addon Cartridge (restart); 4M_extended_ram|1M_extended_ram" },
-      { "yabasanshiro_system_language", "System Language (restart); english|deutsch|french|spanish|italian|japanese" },
-      { "yabasanshiro_multitap_port1", "6Player Adaptor on Port 1; disabled|enabled" },
-      { "yabasanshiro_multitap_port2", "6Player Adaptor on Port 2; disabled|enabled" },
-#ifdef DYNAREC_DEVMIYAX
-      { "yabasanshiro_sh2coretype", "SH2 Core (restart); dynarec|interpreter" },
-#endif
-      { "yabasanshiro_sh2_cache", "SH2 Cache Emulation (restart); enabled|disabled" },
-      { "yabasanshiro_video_filter", "Video Filter; none|bilinear|fxaa|scanlines" },
-      { "yabasanshiro_rotate_screen", "Rotate Screen (native resolution only); disabled|enabled" },
-      { "yabasanshiro_scsp_main_mode", "SCSP Threading (restart); synced|realtime" },
-      { "yabasanshiro_scsp_sync_per_frame", "SCSP Syncs Per Frame (restart); 1|2|4|8" },
-      { "yabasanshiro_polygon_mode", "Polygon Mode (restart); perspective_correction|gpu_tesselation|cpu_tesselation" },
-      { "yabasanshiro_resolution_mode", "Resolution Mode (restart); original|2x|4x|720p|1080p|4k" },
-      { "yabasanshiro_rbg_resolution_mode", "RGB resolution mode; original|2x|720p|1080p|Fit_to_emulation" },
-#if !defined(__APPLE__)
-      { "yabasanshiro_rbg_use_compute_shader", "RGB use compute shader for RGB; disabled|enabled" },
-#endif
-      { NULL, NULL },
-   };
-
    static const struct retro_controller_description peripherals[] = {
        { "Saturn Pad", RETRO_DEVICE_JOYPAD },
        { "Saturn 3D Pad", RETRO_DEVICE_ANALOG },
@@ -166,7 +141,7 @@ void retro_set_environment(retro_environment_t cb)
 
    environ_cb = cb;
 
-   cb(RETRO_ENVIRONMENT_SET_VARIABLES, (void*)vars);
+   libretro_set_core_options(cb);
    environ_cb(RETRO_ENVIRONMENT_SET_CONTROLLER_INFO, (void*)ports);
 }
 void retro_set_video_refresh(retro_video_refresh_t cb) { video_cb = cb; }
