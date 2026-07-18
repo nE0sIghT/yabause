@@ -104,8 +104,8 @@ void FASTCALL	SmpcWriteByte(u32, u8);
 void FASTCALL	SmpcWriteWord(u32, u16);
 void FASTCALL	SmpcWriteLong(u32, u32);
 
-int SmpcSaveState(FILE *fp);
-int SmpcLoadState(FILE *fp, int version, int size);
+int SmpcSaveState(StateStream *stream);
+int SmpcLoadState(StateStream *stream, int version, int size);
 
 int SmpcSetClockSync(int clocksync, u32 basetime);
 

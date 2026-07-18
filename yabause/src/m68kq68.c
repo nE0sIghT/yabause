@@ -91,8 +91,8 @@ static void writeb_trampoline(uint32_t address, uint32_t data);
 static void writew_trampoline(uint32_t address, uint32_t data);
 #endif
 
-static void m68kq68_save_state(FILE * fp);
-static void m68kq68_load_state(FILE * fp);
+static void m68kq68_save_state(StateStream *stream);
+static void m68kq68_load_state(StateStream *stream);
 
 /*-----------------------------------------------------------------------*/
 
@@ -525,7 +525,7 @@ static void writew_trampoline(uint32_t address, uint32_t data) {
 
 #endif  // NEED_TRAMPOLINE
 
-static void m68kq68_save_state(FILE * fp)
+static void m68kq68_save_state(StateStream *fp)
 {
    int i = 0;
    u32 val = 0;
@@ -534,29 +534,29 @@ static void m68kq68_save_state(FILE * fp)
    for (i = 0; i < 8; i++)
    {
       val = q68_get_dreg(state, i);
-      ywrite(&check, (void *)&val, sizeof(u32), 1, fp);
+      StateWriteChecked(&check, (void *)&val, sizeof(u32), 1, fp);
    }
 
    for (i = 0; i < 8; i++)
    {
       val = q68_get_areg(state, i, val);
-      ywrite(&check, (void *)&val, sizeof(u32), 1, fp);
+      StateWriteChecked(&check, (void *)&val, sizeof(u32), 1, fp);
    }
 
    val = q68_get_pc(state, val);
-   ywrite(&check, (void *)&val, sizeof(u32), 1, fp);
+   StateWriteChecked(&check, (void *)&val, sizeof(u32), 1, fp);
    
    val = q68_get_sr(state, val);
-   ywrite(&check, (void *)&val, sizeof(u32), 1, fp);
+   StateWriteChecked(&check, (void *)&val, sizeof(u32), 1, fp);
    
    val = q68_get_usp(state, val);
-   ywrite(&check, (void *)&val, sizeof(u32), 1, fp);
+   StateWriteChecked(&check, (void *)&val, sizeof(u32), 1, fp);
    
    val = q68_get_ssp(state, val);
-   ywrite(&check, (void *)&val, sizeof(u32), 1, fp);
+   StateWriteChecked(&check, (void *)&val, sizeof(u32), 1, fp);
 }
 
-static void m68kq68_load_state(FILE * fp)
+static void m68kq68_load_state(StateStream *fp)
 {
    int i = 0;
    u32 val = 0;
@@ -564,26 +564,26 @@ static void m68kq68_load_state(FILE * fp)
 
    for (i = 0; i < 8; i++)
    {
-      yread(&check, (void *)&val, sizeof(u32), 1, fp);
+      StateReadChecked(&check, (void *)&val, sizeof(u32), 1, fp);
       q68_set_dreg(state, i, val);
    }
 
    for (i = 0; i < 8; i++)
    {
-      yread(&check, (void *)&val, sizeof(u32), 1, fp);
+      StateReadChecked(&check, (void *)&val, sizeof(u32), 1, fp);
       q68_set_areg(state, i, val);
    }
 
-   yread(&check, (void *)&val, sizeof(u32), 1, fp);
+   StateReadChecked(&check, (void *)&val, sizeof(u32), 1, fp);
    q68_set_pc(state, val);
 
-   yread(&check, (void *)&val, sizeof(u32), 1, fp);
+   StateReadChecked(&check, (void *)&val, sizeof(u32), 1, fp);
    q68_set_sr(state, val);
 
-   yread(&check, (void *)&val, sizeof(u32), 1, fp);
+   StateReadChecked(&check, (void *)&val, sizeof(u32), 1, fp);
    q68_set_usp(state, val);
 
-   yread(&check, (void *)&val, sizeof(u32), 1, fp);
+   StateReadChecked(&check, (void *)&val, sizeof(u32), 1, fp);
    q68_set_ssp(state, val);
 }
 

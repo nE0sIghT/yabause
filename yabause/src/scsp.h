@@ -130,8 +130,8 @@ void M68KExec(s32 cycles);
 void ScspExec(void);
 void ScspConvert32uto16s(s32 *srcL, s32 *srcR, s16 *dst, u32 len);
 void ScspReceiveCDDA(const u8 *sector);
-int SoundSaveState(FILE *fp);
-int SoundLoadState(FILE *fp, int version, int size);
+int SoundSaveState(StateStream *stream);
+int SoundLoadState(StateStream *stream, int version, int size);
 void ScspSlotDebugStats(u8 slotnum, char *outstring);
 void ScspCommonControlRegisterDebugStats(char *outstring);
 int ScspSlotDebugSaveRegisters(u8 slotnum, const char *filename);
@@ -186,6 +186,7 @@ void new_scsp_exec(s32 cycles);
 
 void ScspLockThread();
 void ScspUnLockThread();
+void ScspPostLoadState();
 void setM68kCounter(u64 counter);
 void setM68kDoneCounter(u64 counter);
 

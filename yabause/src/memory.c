@@ -1492,39 +1492,69 @@ void FormatBackupRam(void *mem, u32 size)
 
 //////////////////////////////////////////////////////////////////////////////
 
-int YabSaveStateBuffer(void ** buffer, size_t * size)
+int YabSaveStateBuffer(void **buffer, size_t *size)
 {
-   FILE * fp;
+   StateStream sizing;
+   StateStream output;
    int status;
-   size_t num_read = 0;
 
-   if (buffer != NULL) *buffer = NULL;
+   if (size == NULL)
+      return -1;
+   if (buffer != NULL)
+      *buffer = NULL;
    *size = 0;
 
-   fp = tmpfile();
-
    ScspLockThread();
-   status = YabSaveStateStream(fp);
+   StateStreamInitWrite(&sizing, NULL, 0);
+   status = YabSaveStateStream(&sizing, 0);
+   if (status == 0 && buffer != NULL)
+   {
+      *buffer = malloc(sizing.size);
+      if (*buffer == NULL)
+         status = -1;
+      else
+      {
+         StateStreamInitWrite(&output, *buffer, sizing.size);
+         status = YabSaveStateStream(&output, 0);
+         if (status == 0 && (output.failed || output.size != sizing.size))
+            status = -2;
+      }
+   }
    ScspUnLockThread();
 
    if (status != 0)
    {
-      fclose(fp);
+      if (buffer != NULL)
+      {
+         free(*buffer);
+         *buffer = NULL;
+      }
       return status;
    }
 
-   fseek(fp, 0, SEEK_END);
-   *size = ftell(fp);
-   fseek(fp, 0, SEEK_SET);
-
-   if (buffer != NULL)
-   {
-      *buffer = malloc(*size);
-      num_read = fread(*buffer, 1, *size, fp);
-   }
-
-   fclose(fp);
+   *size = sizing.size;
    return 0;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
+int YabSaveStateToBuffer(void *buffer, size_t capacity, size_t *size)
+{
+   StateStream stream;
+   int status;
+
+   if (size == NULL || (buffer == NULL && capacity != 0))
+      return -1;
+
+   StateStreamInitWrite(&stream, buffer, capacity);
+   ScspLockThread();
+   status = YabSaveStateStream(&stream, 0);
+   ScspUnLockThread();
+   *size = stream.size;
+
+   if (status != 0)
+      return status;
+   return stream.failed ? -2 : 0;
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -1532,19 +1562,53 @@ int YabSaveStateBuffer(void ** buffer, size_t * size)
 int YabSaveState(const char *filename)
 {
    FILE *fp;
-   int status = 0;
+   StateStream sizing;
+   StateStream output;
+   void *buffer = NULL;
+   int status;
 
    //use a second set of savestates for movies
    filename = MakeMovieStateName(filename);
    if (!filename)
       return -1;
 
-   if ((fp = fopen_utf8(filename, "wb")) == NULL)
-      return -1;
    ScspLockThread();
-   status = YabSaveStateStream(fp);
+   StateStreamInitWrite(&sizing, NULL, 0);
+   status = YabSaveStateStream(&sizing, 1);
+   if (status == 0)
+   {
+      buffer = malloc(sizing.size);
+      if (buffer == NULL)
+         status = -1;
+      else
+      {
+         StateStreamInitWrite(&output, buffer, sizing.size);
+         status = YabSaveStateStream(&output, 1);
+         if (status == 0 && (output.failed || output.size != sizing.size))
+            status = -2;
+      }
+   }
    ScspUnLockThread();
-   fclose(fp);
+
+   if (status != 0)
+   {
+      free(buffer);
+      return status;
+   }
+
+   if ((fp = fopen_utf8(filename, "wb")) == NULL)
+   {
+      free(buffer);
+      return -1;
+   }
+   if (fwrite(buffer, 1, sizing.size, fp) != sizing.size)
+      status = -1;
+   if (fclose(fp) != 0)
+      status = -1;
+   free(buffer);
+
+   if (status == 0)
+      OSDPushMessage(OSDMSG_STATUS, 150, "STATE SAVED");
 
    return status;
 }
@@ -1554,127 +1618,144 @@ int YabSaveState(const char *filename)
 
 // FIXME: Here's a (possibly incomplete) list of data that should be added
 // to the next version of the save state file:
-//    yabsys.DecilineStop (new format)
-//    yabsys.SH2CycleFrac (new field)
-//    yabsys.DecilineUSed (new field)
-//    yabsys.UsecFrac (new field)
 //    [scsp2.c] It would be nice to redo the format entirely because so
 //              many fields have changed format/size from the old scsp.c
 //    [scsp2.c] scsp_clock, scsp_clock_frac, ScspState.sample_timer (timing)
-//    [scsp2.c] cdda_buf, cdda_next_in, cdda_next_out (CDDA buffer)
-//    [sh2core.c] frc.div changed to frc.shift
-//    [sh2core.c] wdt probably needs to be written as well
 
-int YabSaveStateStream(FILE *fp)
+int YabSaveStateStream(StateStream *fp, int include_presentation)
 {
-   u32 i;
+   u32 headerversion;
+   u32 totalsize_field;
    int offset;
    IOCheck_struct check;
-   u8 *buf;
-   int totalsize;
-   int outputwidth;
-   int outputheight;
-   int movieposition;
+   u8 *buf = NULL;
+   size_t totalsize = 0;
+   int outputwidth = 0;
+   int outputheight = 0;
+   int movieposition = 0;
    int temp;
    u32 temp32;
+   u8 endian;
+   long end;
 
    check.done = 0;
    check.size = 0;
 
    // Write signature
-   fprintf(fp, "YSS");
+   StateWriteChecked(&check, "YSS", 1, 3, fp);
 
    // Write endianness byte
 #ifdef WORDS_BIGENDIAN
-   fputc(0x00, fp);
+   endian = 0x00;
 #else
-   fputc(0x01, fp);
+   endian = 0x01;
 #endif
+   StateWriteChecked(&check, &endian, 1, 1, fp);
 
-   // Write version(fix me)
-   i = 2;
-   ywrite(&check, (void *)&i, sizeof(i), 1, fp);
+   // Version 3 is the compact emulator-only state used by libretro.
+   headerversion = include_presentation ? 2 : 3;
+   StateWriteChecked(&check, (void *)&headerversion, sizeof(headerversion), 1, fp);
 
    // Skip the next 4 bytes for now
-   i = 0;
-   ywrite(&check, (void *)&i, sizeof(i), 1, fp);
+   totalsize_field = 0;
+   StateWriteChecked(&check, (void *)&totalsize_field, sizeof(totalsize_field), 1, fp);
 
    //write frame number
-   ywrite(&check, (void *)&framecounter, 4, 1, fp);
+   StateWriteChecked(&check, (void *)&framecounter, 4, 1, fp);
 
    //this will be updated with the movie position later
-   ywrite(&check, (void *)&framecounter, 4, 1, fp);
+   StateWriteChecked(&check, (void *)&framecounter, 4, 1, fp);
 
-   // Go through each area and write each state
-   i += CartSaveState(fp);
-   i += Cs2SaveState(fp);
-   i += SH2SaveState(MSH2, fp);
-   i += SH2SaveState(SSH2, fp);
-   i += SoundSaveState(fp);
-   i += ScuSaveState(fp);
-   i += SmpcSaveState(fp);
-   i += Vdp1SaveState(fp);
-   i += Vdp2SaveState(fp);
+   // Go through each area and write each state.
+   if (CartSaveState(fp) < 0 || Cs2SaveState(fp) < 0 ||
+       SH2SaveState(MSH2, fp) < 0 || SH2SaveState(SSH2, fp) < 0 ||
+       SoundSaveState(fp) < 0 || ScuSaveState(fp) < 0 ||
+       SmpcSaveState(fp) < 0 || Vdp1SaveState(fp) < 0 ||
+       Vdp2SaveState(fp) < 0)
+      return -2;
 
-   offset = StateWriteHeader(fp, "OTHR", 1);
+   offset = StateStreamWriteHeader(fp, "OTHR", include_presentation ? 1 : 2);
+   if (offset < 0)
+      return -2;
 
    // Other data
-   ywrite(&check, (void *)BupRam, 0x10000, 1, fp); // do we really want to save this?
-   ywrite(&check, (void *)HighWram, 0x100000, 1, fp);
-   ywrite(&check, (void *)LowWram, 0x100000, 1, fp);
+   StateWriteChecked(&check, (void *)BupRam, 0x10000, 1, fp); // do we really want to save this?
+   StateWriteChecked(&check, (void *)HighWram, 0x100000, 1, fp);
+   StateWriteChecked(&check, (void *)LowWram, 0x100000, 1, fp);
 
-   ywrite(&check, (void *)&yabsys.DecilineCount, sizeof(int), 1, fp);
-   ywrite(&check, (void *)&yabsys.LineCount, sizeof(int), 1, fp);
-   ywrite(&check, (void *)&yabsys.VBlankLineCount, sizeof(int), 1, fp);
-   ywrite(&check, (void *)&yabsys.MaxLineCount, sizeof(int), 1, fp);
+   StateWriteChecked(&check, (void *)&yabsys.DecilineCount, sizeof(int), 1, fp);
+   StateWriteChecked(&check, (void *)&yabsys.LineCount, sizeof(int), 1, fp);
+   StateWriteChecked(&check, (void *)&yabsys.VBlankLineCount, sizeof(int), 1, fp);
+   StateWriteChecked(&check, (void *)&yabsys.MaxLineCount, sizeof(int), 1, fp);
    temp = yabsys.DecilineStop >> YABSYS_TIMING_BITS;
-   ywrite(&check, (void *)&temp, sizeof(int), 1, fp);
+   StateWriteChecked(&check, (void *)&temp, sizeof(int), 1, fp);
    temp = (yabsys.CurSH2FreqType == CLKTYPE_26MHZ) ? 268 : 286;
-   ywrite(&check, (void *)&temp, sizeof(int), 1, fp);
+   StateWriteChecked(&check, (void *)&temp, sizeof(int), 1, fp);
    temp32 = (yabsys.UsecFrac * temp / 10) >> YABSYS_TIMING_BITS;
-   ywrite(&check, (void *)&temp32, sizeof(u32), 1, fp);
-   ywrite(&check, (void *)&yabsys.CurSH2FreqType, sizeof(int), 1, fp);
-   ywrite(&check, (void *)&yabsys.IsPal, sizeof(int), 1, fp);
+   StateWriteChecked(&check, (void *)&temp32, sizeof(u32), 1, fp);
+   StateWriteChecked(&check, (void *)&yabsys.CurSH2FreqType, sizeof(int), 1, fp);
+   StateWriteChecked(&check, (void *)&yabsys.IsPal, sizeof(int), 1, fp);
 
-   VIDCore->GetGlSize(&outputwidth, &outputheight);
-
-   totalsize=outputwidth * outputheight * sizeof(u32);
-
-   if ((buf = (u8 *)malloc(totalsize)) == NULL)
+   if (!include_presentation)
    {
-      return -2;
+      // Exact timing values are needed when stepping backwards frame by frame.
+      StateWriteChecked(&check, (void *)&yabsys.DecilineMode, sizeof(yabsys.DecilineMode), 1, fp);
+      StateWriteChecked(&check, (void *)&yabsys.DecilineStop, sizeof(yabsys.DecilineStop), 1, fp);
+      StateWriteChecked(&check, (void *)&yabsys.SH2CycleFrac, sizeof(yabsys.SH2CycleFrac), 1, fp);
+      StateWriteChecked(&check, (void *)&yabsys.DecilineUsec, sizeof(yabsys.DecilineUsec), 1, fp);
+      StateWriteChecked(&check, (void *)&yabsys.UsecFrac, sizeof(yabsys.UsecFrac), 1, fp);
+      StateWriteChecked(&check, (void *)&yabsys.IsSSH2Running, sizeof(yabsys.IsSSH2Running), 1, fp);
+      StateWriteChecked(&check, (void *)&yabsys.frame_count, sizeof(yabsys.frame_count), 1, fp);
+      StateWriteChecked(&check, (void *)&yabsys.Hcount, sizeof(yabsys.Hcount), 1, fp);
+      StateWriteChecked(&check, (void *)&saved_scsp_cycles, sizeof(saved_scsp_cycles), 1, fp);
+      StateWriteChecked(&check, (void *)&saved_m68k_cycles, sizeof(saved_m68k_cycles), 1, fp);
    }
 
-   //YuiSwapBuffers();
-   #ifdef USE_OPENGL
-   glPixelZoom(1,1);
-   glReadBuffer(GL_BACK);
-   glReadPixels(0, 0, outputwidth, outputheight, GL_RGBA, GL_UNSIGNED_BYTE, buf);
-   #else
-   //memcpy(buf, dispbuffer, totalsize);
-   #endif
-   //YuiSwapBuffers();
+   if (include_presentation)
+   {
+      VIDCore->GetGlSize(&outputwidth, &outputheight);
+      if (outputwidth <= 0 || outputheight <= 0 ||
+          (size_t)outputwidth > SIZE_MAX / (size_t)outputheight / sizeof(u32))
+         return -2;
+      totalsize = (size_t)outputwidth * (size_t)outputheight * sizeof(u32);
 
-   ywrite(&check, (void *)&outputwidth, sizeof(outputwidth), 1, fp);
-   ywrite(&check, (void *)&outputheight, sizeof(outputheight), 1, fp);
+      if (fp->data != NULL)
+      {
+         if ((buf = (u8 *)calloc(1, totalsize)) == NULL)
+            return -2;
+#ifdef USE_OPENGL
+         glPixelZoom(1,1);
+         glReadBuffer(GL_BACK);
+         glReadPixels(0, 0, outputwidth, outputheight, GL_RGBA, GL_UNSIGNED_BYTE, buf);
+#endif
+      }
 
-   ywrite(&check, (void *)buf, totalsize, 1, fp);
+      StateWriteChecked(&check, (void *)&outputwidth, sizeof(outputwidth), 1, fp);
+      StateWriteChecked(&check, (void *)&outputheight, sizeof(outputheight), 1, fp);
+      StateWriteChecked(&check, (void *)buf, totalsize, 1, fp);
+      free(buf);
 
-   movieposition=ftell(fp);
-   //write the movie to the end of the savestate
-   SaveMovieInState(fp, check);
+      movieposition = (int)StateStreamTell(fp);
+      SaveMovieInState(fp);
+   }
 
-   i += StateFinishHeader(fp, offset);
+   if (StateStreamFinishHeader(fp, offset) < 0 || fp->failed)
+      return -2;
 
-   // Go back and update size
-   fseek(fp, 8, SEEK_SET);
-   ywrite(&check, (void *)&i, sizeof(i), 1, fp);
-   fseek(fp, 16, SEEK_SET);
-   ywrite(&check, (void *)&movieposition, sizeof(movieposition), 1, fp);
+   end = StateStreamTell(fp);
+   if (end < 0x14 || (unsigned long)(end - 0x14) > UINT_MAX)
+      return -2;
+   totalsize_field = (u32)(end - 0x14);
 
-   free(buf);
+   if (StateStreamSeek(fp, 8, SEEK_SET) != 0)
+      return -2;
+   StateWriteChecked(&check, (void *)&totalsize_field, sizeof(totalsize_field), 1, fp);
+   if (StateStreamSeek(fp, 16, SEEK_SET) != 0)
+      return -2;
+   StateWriteChecked(&check, (void *)&movieposition, sizeof(movieposition), 1, fp);
+   if (StateStreamSeek(fp, end, SEEK_SET) != 0 || fp->failed)
+      return -2;
 
-   OSDPushMessage(OSDMSG_STATUS, 150, "STATE SAVED");
    return 0;
 }
 
@@ -1682,19 +1763,16 @@ int YabSaveStateStream(FILE *fp)
 
 int YabLoadStateBuffer(const void * buffer, size_t size)
 {
-   FILE * fp;
+   StateStream stream;
    int status;
 
-   fp = tmpfile();
-   fwrite(buffer, 1, size, fp);
+   if (buffer == NULL || size == 0)
+      return -1;
 
-   fseek(fp, 0, SEEK_SET);
-
+   StateStreamInitRead(&stream, buffer, size);
    ScspLockThread();
-   status = YabLoadStateStream(fp);
+   status = YabLoadStateStream(&stream);
    ScspUnLockThread();
-
-   fclose(fp);
 
    return status;
 }
@@ -1704,6 +1782,8 @@ int YabLoadStateBuffer(const void * buffer, size_t size)
 int YabLoadState(const char *filename)
 {
    FILE *fp;
+   void *buffer;
+   long length;
    int status;
 
    filename = MakeMovieStateName(filename);
@@ -1713,25 +1793,37 @@ int YabLoadState(const char *filename)
    if ((fp = fopen_utf8(filename, "rb")) == NULL)
       return -1;
 
-   ScspLockThread();
-   status = YabLoadStateStream(fp);
-   ScspUnLockThread();
-
+   if (fseek(fp, 0, SEEK_END) != 0 || (length = ftell(fp)) <= 0 ||
+       fseek(fp, 0, SEEK_SET) != 0)
+   {
+      fclose(fp);
+      return -1;
+   }
+   buffer = malloc((size_t)length);
+   if (buffer == NULL || fread(buffer, 1, (size_t)length, fp) != (size_t)length)
+   {
+      free(buffer);
+      fclose(fp);
+      return -1;
+   }
    fclose(fp);
-
+   status = YabLoadStateBuffer(buffer, (size_t)length);
+   free(buffer);
+   if (status == 0)
+      OSDPushMessage(OSDMSG_STATUS, 150, "STATE LOADED");
    return status;
 }
 
 //////////////////////////////////////////////////////////////////////////////
 
-int YabLoadStateStream(FILE *fp)
+int YabLoadStateStream(StateStream *fp)
 {
    char id[3];
    u8 endian;
    int headerversion, version, size, chunksize, headersize;
    IOCheck_struct check;
    u8* buf;
-   int totalsize;
+   size_t totalsize;
    int outputwidth;
    int outputheight;
    int curroutputwidth;
@@ -1749,7 +1841,7 @@ int YabLoadStateStream(FILE *fp)
 
 
    // Read signature
-   yread(&check, (void *)id, 1, 3, fp);
+   StateReadChecked(&check, (void *)id, 1, 3, fp);
 
    if (strncmp(id, "YSS", 3) != 0)
    {
@@ -1757,9 +1849,9 @@ int YabLoadStateStream(FILE *fp)
    }
 
    // Read header
-   yread(&check, (void *)&endian, 1, 1, fp);
-   yread(&check, (void *)&headerversion, 4, 1, fp);
-   yread(&check, (void *)&size, 4, 1, fp);
+   StateReadChecked(&check, (void *)&endian, 1, 1, fp);
+   StateReadChecked(&check, (void *)&headerversion, 4, 1, fp);
+   StateReadChecked(&check, (void *)&size, 4, 1, fp);
    switch(headerversion)
    {
       case 1:
@@ -1767,9 +1859,14 @@ int YabLoadStateStream(FILE *fp)
          break;
       case 2:
          /* version 2 adds video recording */
-         yread(&check, (void *)&framecounter, 4, 1, fp);
-		 movieposition=ftell(fp);
-		 yread(&check, (void *)&movieposition, 4, 1, fp);
+         StateReadChecked(&check, (void *)&framecounter, 4, 1, fp);
+		 movieposition=(int)StateStreamTell(fp);
+		 StateReadChecked(&check, (void *)&movieposition, 4, 1, fp);
+         headersize = 0x14;
+         break;
+      case 3:
+         StateReadChecked(&check, (void *)&framecounter, 4, 1, fp);
+         StateReadChecked(&check, (void *)&movieposition, 4, 1, fp);
          headersize = 0x14;
          break;
       default:
@@ -1792,116 +1889,135 @@ int YabLoadStateStream(FILE *fp)
    }
 
    // Make sure size variable matches actual size minus header
-   fseek(fp, 0, SEEK_END);
-
-   if (size != (ftell(fp) - headersize))
+   if (size < 0 || fp->size < (size_t)headersize ||
+       (size_t)size != fp->size - (size_t)headersize)
    {
       return -2;
    }
-   fseek(fp, headersize, SEEK_SET);
+   if (StateStreamSeek(fp, headersize, SEEK_SET) != 0)
+      return -2;
 
    // Verify version here
  
       
-   if (StateCheckRetrieveHeader(fp, "CART", &version, &chunksize) != 0)
+   if (StateStreamCheckRetrieveHeader(fp, "CART", &version, &chunksize) != 0)
    {
       // Revert back to old state here
       return -3;
    }
    CartLoadState(fp, version, chunksize);
 
-   if (StateCheckRetrieveHeader(fp, "CS2 ", &version, &chunksize) != 0)
+   if (StateStreamCheckRetrieveHeader(fp, "CS2 ", &version, &chunksize) != 0)
    {
       // Revert back to old state here
       return -3;
    }
    Cs2LoadState(fp, version, chunksize);
 
-   if (StateCheckRetrieveHeader(fp, "MSH2", &version, &chunksize) != 0)
+   if (StateStreamCheckRetrieveHeader(fp, "MSH2", &version, &chunksize) != 0)
    {
       // Revert back to old state here
       return -3;
    }
    SH2LoadState(MSH2, fp, version, chunksize);
 
-   if (StateCheckRetrieveHeader(fp, "SSH2", &version, &chunksize) != 0)
+   if (StateStreamCheckRetrieveHeader(fp, "SSH2", &version, &chunksize) != 0)
    {
       // Revert back to old state here
       return -3;
    }
    SH2LoadState(SSH2, fp, version, chunksize);
 
-   if (StateCheckRetrieveHeader(fp, "SCSP", &version, &chunksize) != 0)
+   if (StateStreamCheckRetrieveHeader(fp, "SCSP", &version, &chunksize) != 0)
    {
       // Revert back to old state here
       return -3;
    }
    SoundLoadState(fp, version, chunksize);
 
-   if (StateCheckRetrieveHeader(fp, "SCU ", &version, &chunksize) != 0)
+   if (StateStreamCheckRetrieveHeader(fp, "SCU ", &version, &chunksize) != 0)
    {
       // Revert back to old state here
       return -3;
    }
    ScuLoadState(fp, version, chunksize);
 
-   if (StateCheckRetrieveHeader(fp, "SMPC", &version, &chunksize) != 0)
+   if (StateStreamCheckRetrieveHeader(fp, "SMPC", &version, &chunksize) != 0)
    {
       // Revert back to old state here
       return -3;
    }
    SmpcLoadState(fp, version, chunksize);
 
-   if (StateCheckRetrieveHeader(fp, "VDP1", &version, &chunksize) != 0)
+   if (StateStreamCheckRetrieveHeader(fp, "VDP1", &version, &chunksize) != 0)
    {
       // Revert back to old state here
       return -3;
    }
    Vdp1LoadState(fp, version, chunksize);
 
-   if (StateCheckRetrieveHeader(fp, "VDP2", &version, &chunksize) != 0)
+   if (StateStreamCheckRetrieveHeader(fp, "VDP2", &version, &chunksize) != 0)
    {
       // Revert back to old state here
       return -3;
    }
    Vdp2LoadState(fp, version, chunksize);
 
-   if (StateCheckRetrieveHeader(fp, "OTHR", &version, &chunksize) != 0)
+   if (StateStreamCheckRetrieveHeader(fp, "OTHR", &version, &chunksize) != 0)
    {
       // Revert back to old state here
       return -3;
    }
    // Other data
-   //yread(&check, (void *)BupRam, 0x10000, 1, fp);
-   fseek(fp, 0x10000, SEEK_CUR ); // skip this data
-   yread(&check, (void *)HighWram, 0x100000, 1, fp);
-   yread(&check, (void *)LowWram, 0x100000, 1, fp);
+   if (headerversion >= 3)
+      StateReadChecked(&check, (void *)BupRam, 0x10000, 1, fp);
+   else if (StateStreamSeek(fp, 0x10000, SEEK_CUR) != 0)
+      return -2;
+   StateReadChecked(&check, (void *)HighWram, 0x100000, 1, fp);
+   StateReadChecked(&check, (void *)LowWram, 0x100000, 1, fp);
 
-   yread(&check, (void *)&yabsys.DecilineCount, sizeof(int), 1, fp);
-   yread(&check, (void *)&yabsys.LineCount, sizeof(int), 1, fp);
-   yread(&check, (void *)&yabsys.VBlankLineCount, sizeof(int), 1, fp);
-   yread(&check, (void *)&yabsys.MaxLineCount, sizeof(int), 1, fp);
-   yread(&check, (void *)&temp, sizeof(int), 1, fp);
-   yread(&check, (void *)&temp, sizeof(int), 1, fp);
-   yread(&check, (void *)&temp32, sizeof(u32), 1, fp);
-   yread(&check, (void *)&yabsys.CurSH2FreqType, sizeof(int), 1, fp);
-   yread(&check, (void *)&yabsys.IsPal, sizeof(int), 1, fp);
+   StateReadChecked(&check, (void *)&yabsys.DecilineCount, sizeof(int), 1, fp);
+   StateReadChecked(&check, (void *)&yabsys.LineCount, sizeof(int), 1, fp);
+   StateReadChecked(&check, (void *)&yabsys.VBlankLineCount, sizeof(int), 1, fp);
+   StateReadChecked(&check, (void *)&yabsys.MaxLineCount, sizeof(int), 1, fp);
+   StateReadChecked(&check, (void *)&temp, sizeof(int), 1, fp);
+   StateReadChecked(&check, (void *)&temp, sizeof(int), 1, fp);
+   StateReadChecked(&check, (void *)&temp32, sizeof(u32), 1, fp);
+   StateReadChecked(&check, (void *)&yabsys.CurSH2FreqType, sizeof(int), 1, fp);
+   StateReadChecked(&check, (void *)&yabsys.IsPal, sizeof(int), 1, fp);
    YabauseChangeTiming(yabsys.CurSH2FreqType);
    yabsys.UsecFrac = (temp32 << YABSYS_TIMING_BITS) * temp / 10;
 
-   if (headerversion > 1) {
+   if (version >= 2)
+   {
+      StateReadChecked(&check, (void *)&yabsys.DecilineMode, sizeof(yabsys.DecilineMode), 1, fp);
+      StateReadChecked(&check, (void *)&yabsys.DecilineStop, sizeof(yabsys.DecilineStop), 1, fp);
+      StateReadChecked(&check, (void *)&yabsys.SH2CycleFrac, sizeof(yabsys.SH2CycleFrac), 1, fp);
+      StateReadChecked(&check, (void *)&yabsys.DecilineUsec, sizeof(yabsys.DecilineUsec), 1, fp);
+      StateReadChecked(&check, (void *)&yabsys.UsecFrac, sizeof(yabsys.UsecFrac), 1, fp);
+      StateReadChecked(&check, (void *)&yabsys.IsSSH2Running, sizeof(yabsys.IsSSH2Running), 1, fp);
+      StateReadChecked(&check, (void *)&yabsys.frame_count, sizeof(yabsys.frame_count), 1, fp);
+      StateReadChecked(&check, (void *)&yabsys.Hcount, sizeof(yabsys.Hcount), 1, fp);
+      StateReadChecked(&check, (void *)&saved_scsp_cycles, sizeof(saved_scsp_cycles), 1, fp);
+      StateReadChecked(&check, (void *)&saved_m68k_cycles, sizeof(saved_m68k_cycles), 1, fp);
+   }
 
-   yread(&check, (void *)&outputwidth, sizeof(outputwidth), 1, fp);
-   yread(&check, (void *)&outputheight, sizeof(outputheight), 1, fp);
+   if (headerversion == 2) {
 
-   totalsize=outputwidth * outputheight * sizeof(u32);
+   StateReadChecked(&check, (void *)&outputwidth, sizeof(outputwidth), 1, fp);
+   StateReadChecked(&check, (void *)&outputheight, sizeof(outputheight), 1, fp);
+
+   if (outputwidth <= 0 || outputheight <= 0 ||
+       (size_t)outputwidth > SIZE_MAX / (size_t)outputheight / sizeof(u32))
+      return -2;
+   totalsize = (size_t)outputwidth * (size_t)outputheight * sizeof(u32);
 
    if ((buf = (u8 *)malloc(totalsize)) == NULL)
    {
       return -2;
    }
 
-   yread(&check, (void *)buf, totalsize, 1, fp);
+   StateReadChecked(&check, (void *)buf, totalsize, 1, fp);
 
    //YuiSwapBuffers();
 
@@ -1920,13 +2036,15 @@ int YabLoadStateStream(FILE *fp)
    //YuiSwapBuffers();
    free(buf);
 
-   fseek(fp, movieposition, SEEK_SET);
+   if (movieposition < 0 || StateStreamSeek(fp, movieposition, SEEK_SET) != 0)
+      return -2;
    MovieReadState(fp);
    }
 
-   ScspUnMuteAudio(SCSP_MUTE_SYSTEM);
+   if (fp->failed)
+      return -2;
 
-   OSDPushMessage(OSDMSG_STATUS, 150, "STATE LOADED");
+   ScspPostLoadState();
 
    return 0;
 }

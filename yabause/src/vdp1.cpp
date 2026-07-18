@@ -837,74 +837,59 @@ extern "C" void FASTCALL Vdp1ReadCommand(vdp1cmd_struct *cmd, u32 addr, u8* ram)
 
 //////////////////////////////////////////////////////////////////////////////
 
-extern "C" int Vdp1SaveState(FILE *fp)
+extern "C" int Vdp1SaveState(StateStream *fp)
 {
    int offset;
    IOCheck_struct check = { 0, 0 };
-#ifdef IMPROVED_SAVESTATES
-   int i = 0;
-   u16 back_framebuffer[0x20000] = { 0 };
-#endif
 
-   offset = StateWriteHeader(fp, "VDP1", 1);
+   offset = StateStreamWriteHeader(fp, "VDP1", 2);
 
    // Write registers
-   ywrite(&check, (void *)Vdp1Regs, sizeof(Vdp1), 1, fp);
+   StateWriteChecked(&check, (void *)Vdp1Regs, sizeof(Vdp1), 1, fp);
 
    // Write VDP1 ram
-   ywrite(&check, (void *)Vdp1Ram, 0x80000, 1, fp);
+   StateWriteChecked(&check, (void *)Vdp1Ram, 0x80000, 1, fp);
 
 #ifdef IMPROVED_SAVESTATES
-
-   void(*Vdp1ReadFrameBuffer)(u32 type, u32 addr, void * out) = VIDCore->Vdp1ReadFrameBuffer;
-   void(*Vdp1WriteFrameBuffer)(u32 type, u32 addr, u32 val) = VIDCore->Vdp1WriteFrameBuffer;
-
-   VIDCore->Vdp1ReadFrameBuffer = NULL;
-   VIDCore->Vdp1WriteFrameBuffer = NULL;
-
-   for (i = 0; i < 0x20000; i++)
-      back_framebuffer[i] = Vdp1FrameBufferReadWord(i<<1);
-
-   VIDCore->Vdp1ReadFrameBuffer = Vdp1ReadFrameBuffer;
-   VIDCore->Vdp1WriteFrameBuffer = Vdp1WriteFrameBuffer;
-
-   ywrite(&check, (void *)back_framebuffer, 0x40000, 1, fp);
+   StateWriteChecked(&check, (void *)Vdp1FrameBuffer[0], 0x40000, 1, fp);
+   StateWriteChecked(&check, (void *)Vdp1FrameBuffer[1], 0x40000, 1, fp);
+   StateWriteChecked(&check, (void *)&Vdp1External, sizeof(Vdp1External), 1, fp);
 #endif
-   return StateFinishHeader(fp, offset);
+   return StateStreamFinishHeader(fp, offset);
 }
 
 //////////////////////////////////////////////////////////////////////////////
 
-extern "C" int Vdp1LoadState(FILE *fp, UNUSED int version, int size)
+extern "C" int Vdp1LoadState(StateStream *fp, int version, int size)
 {
    IOCheck_struct check = { 0, 0 };
 #ifdef IMPROVED_SAVESTATES
-   int i = 0;
-   u16 back_framebuffer[0x20000] = { 0 };
+   int i;
 #endif
 
    // Read registers
-   yread(&check, (void *)Vdp1Regs, sizeof(Vdp1), 1, fp);
+   StateReadChecked(&check, (void *)Vdp1Regs, sizeof(Vdp1), 1, fp);
 
    // Read VDP1 ram
-   yread(&check, (void *)Vdp1Ram, 0x80000, 1, fp);
+   StateReadChecked(&check, (void *)Vdp1Ram, 0x80000, 1, fp);
 
 #ifdef IMPROVED_SAVESTATES
-
-   void(*Vdp1ReadFrameBuffer)(u32 type, u32 addr, void * out) = VIDCore->Vdp1ReadFrameBuffer;
-   void(*Vdp1WriteFrameBuffer)(u32 type, u32 addr, u32 val) = VIDCore->Vdp1WriteFrameBuffer;
-
-   VIDCore->Vdp1ReadFrameBuffer = NULL;
-   VIDCore->Vdp1WriteFrameBuffer = NULL;
-
-   yread(&check, (void *)back_framebuffer, 0x40000, 1, fp);
-
-   for (i = 0; i < 0x20000; i++)
-      Vdp1FrameBufferWriteWord(i<<1, back_framebuffer[i]);
-
-   VIDCore->Vdp1ReadFrameBuffer = Vdp1ReadFrameBuffer;
-   VIDCore->Vdp1WriteFrameBuffer = Vdp1WriteFrameBuffer;
-
+   if (version >= 2)
+   {
+      StateReadChecked(&check, (void *)Vdp1FrameBuffer[0], 0x40000, 1, fp);
+      StateReadChecked(&check, (void *)Vdp1FrameBuffer[1], 0x40000, 1, fp);
+      StateReadChecked(&check, (void *)&Vdp1External, sizeof(Vdp1External), 1, fp);
+   }
+   else
+   {
+      /* Version 1 contained only the currently selected framebuffer. */
+      for (i = 0; i < 0x20000; i++)
+      {
+         u16 value;
+         StateReadChecked(&check, (void *)&value, sizeof(value), 1, fp);
+         T1WriteWord(Vdp1FrameBuffer[Vdp1External.current_frame], i << 1, value);
+      }
+   }
 #endif
    return size;
 }

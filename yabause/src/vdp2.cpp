@@ -2454,45 +2454,55 @@ void FASTCALL Vdp2WriteLong(u32 addr, u32 val) {
 
 //////////////////////////////////////////////////////////////////////////////
 
-int Vdp2SaveState(FILE *fp)
+int Vdp2SaveState(StateStream *fp)
 {
    int offset;
    IOCheck_struct check = { 0, 0 };
 
-   offset = StateWriteHeader(fp, "VDP2", 1);
+   offset = StateStreamWriteHeader(fp, "VDP2", 2);
 
    // Write registers
-   ywrite(&check, (void *)Vdp2Regs, sizeof(Vdp2), 1, fp);
+   StateWriteChecked(&check, (void *)Vdp2Regs, sizeof(Vdp2), 1, fp);
 
    // Write VDP2 ram
-   ywrite(&check, (void *)Vdp2Ram, 0x80000, 1, fp);
+   StateWriteChecked(&check, (void *)Vdp2Ram, 0x80000, 1, fp);
 
    // Write CRAM
-   ywrite(&check, (void *)Vdp2ColorRam, 0x1000, 1, fp);
+   StateWriteChecked(&check, (void *)Vdp2ColorRam, 0x1000, 1, fp);
 
    // Write internal variables
-   ywrite(&check, (void *)&Vdp2Internal, sizeof(Vdp2Internal_struct), 1, fp);
+   StateWriteChecked(&check, (void *)&Vdp2Internal, sizeof(Vdp2Internal_struct), 1, fp);
+   StateWriteChecked(&check, (void *)Vdp2Lines, sizeof(Vdp2Lines), 1, fp);
+   StateWriteChecked(&check, (void *)cell_scroll_data, sizeof(cell_scroll_data), 1, fp);
+   StateWriteChecked(&check, (void *)&vdp2_is_odd_frame, sizeof(vdp2_is_odd_frame), 1, fp);
 
-   return StateFinishHeader(fp, offset);
+   return StateStreamFinishHeader(fp, offset);
 }
 
 //////////////////////////////////////////////////////////////////////////////
 
-int Vdp2LoadState(FILE *fp, UNUSED int version, int size)
+int Vdp2LoadState(StateStream *fp, int version, int size)
 {
    IOCheck_struct check = { 0, 0 };
 
    // Read registers
-   yread(&check, (void *)Vdp2Regs, sizeof(Vdp2), 1, fp);
+   StateReadChecked(&check, (void *)Vdp2Regs, sizeof(Vdp2), 1, fp);
 
    // Read VDP2 ram
-   yread(&check, (void *)Vdp2Ram, 0x80000, 1, fp);
+   StateReadChecked(&check, (void *)Vdp2Ram, 0x80000, 1, fp);
 
    // Read CRAM
-   yread(&check, (void *)Vdp2ColorRam, 0x1000, 1, fp);
+   StateReadChecked(&check, (void *)Vdp2ColorRam, 0x1000, 1, fp);
 
    // Read internal variables
-   yread(&check, (void *)&Vdp2Internal, sizeof(Vdp2Internal_struct), 1, fp);
+   StateReadChecked(&check, (void *)&Vdp2Internal, sizeof(Vdp2Internal_struct), 1, fp);
+
+   if (version >= 2)
+   {
+      StateReadChecked(&check, (void *)Vdp2Lines, sizeof(Vdp2Lines), 1, fp);
+      StateReadChecked(&check, (void *)cell_scroll_data, sizeof(cell_scroll_data), 1, fp);
+      StateReadChecked(&check, (void *)&vdp2_is_odd_frame, sizeof(vdp2_is_odd_frame), 1, fp);
+   }
 
    //if(VIDCore) VIDCore->Resize(0,0,-1,-1,0,0);
 

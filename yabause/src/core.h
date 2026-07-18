@@ -23,6 +23,8 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <stdint.h>
+#include <limits.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -144,6 +146,137 @@ extern "C" {
 
 #endif // !GEKKO
 
+  typedef struct StateStream {
+    u8 *data;
+    size_t capacity;
+    size_t offset;
+    size_t size;
+    int reading;
+    int failed;
+  } StateStream;
+
+  static INLINE void StateStreamInitWrite(StateStream *stream, void *data, size_t capacity) {
+    stream->data = (u8 *)data;
+    stream->capacity = capacity;
+    stream->offset = 0;
+    stream->size = 0;
+    stream->reading = 0;
+    stream->failed = 0;
+  }
+
+  static INLINE void StateStreamInitRead(StateStream *stream, const void *data, size_t size) {
+    stream->data = (u8 *)(uintptr_t)data;
+    stream->capacity = size;
+    stream->offset = 0;
+    stream->size = size;
+    stream->reading = 1;
+    stream->failed = data == NULL && size != 0;
+  }
+
+  static INLINE size_t StateStreamWrite(const void *ptr, size_t size, size_t nmemb, StateStream *stream) {
+    size_t bytes;
+
+    if (stream == NULL || stream->reading || (size != 0 && nmemb > SIZE_MAX / size)) {
+      if (stream != NULL)
+        stream->failed = 1;
+      return 0;
+    }
+
+    bytes = size * nmemb;
+    if (bytes != 0 && ptr == NULL && stream->data != NULL) {
+      stream->failed = 1;
+      return 0;
+    }
+    if (stream->offset > SIZE_MAX - bytes) {
+      stream->failed = 1;
+      return 0;
+    }
+
+    if (stream->data != NULL) {
+      if (stream->offset > stream->capacity || bytes > stream->capacity - stream->offset) {
+        stream->failed = 1;
+        return 0;
+      }
+      if (bytes != 0)
+        memcpy(stream->data + stream->offset, ptr, bytes);
+    }
+
+    stream->offset += bytes;
+    if (stream->offset > stream->size)
+      stream->size = stream->offset;
+    return nmemb;
+  }
+
+  static INLINE size_t StateStreamRead(void *ptr, size_t size, size_t nmemb, StateStream *stream) {
+    size_t bytes;
+
+    if (stream == NULL || !stream->reading || (size != 0 && nmemb > SIZE_MAX / size)) {
+      if (stream != NULL)
+        stream->failed = 1;
+      return 0;
+    }
+
+    bytes = size * nmemb;
+    if (bytes != 0 && ptr == NULL) {
+      stream->failed = 1;
+      return 0;
+    }
+    if (stream->offset > stream->size || bytes > stream->size - stream->offset) {
+      stream->failed = 1;
+      return 0;
+    }
+    if (bytes != 0)
+      memcpy(ptr, stream->data + stream->offset, bytes);
+    stream->offset += bytes;
+    return nmemb;
+  }
+
+  static INLINE int StateStreamSeek(StateStream *stream, long offset, int whence) {
+    size_t base;
+    size_t position;
+
+    if (stream == NULL)
+      return -1;
+    switch (whence) {
+      case SEEK_SET: base = 0; break;
+      case SEEK_CUR: base = stream->offset; break;
+      case SEEK_END: base = stream->size; break;
+      default: stream->failed = 1; return -1;
+    }
+
+    if (offset < 0) {
+      size_t distance = (size_t)(-(offset + 1)) + 1;
+      if (distance > base) {
+        stream->failed = 1;
+        return -1;
+      }
+      position = base - distance;
+    } else {
+      if ((size_t)offset > SIZE_MAX - base) {
+        stream->failed = 1;
+        return -1;
+      }
+      position = base + (size_t)offset;
+    }
+
+    if (stream->reading && position > stream->size) {
+      stream->failed = 1;
+      return -1;
+    }
+    if (!stream->reading && stream->data != NULL && position > stream->capacity) {
+      stream->failed = 1;
+      return -1;
+    }
+    stream->offset = position;
+    return 0;
+  }
+
+  static INLINE long StateStreamTell(const StateStream *stream) {
+    if (stream == NULL || stream->offset > LONG_MAX)
+      return -1;
+    return (long)stream->offset;
+  }
+
   typedef struct {
     unsigned int size;
     unsigned int done;
@@ -159,44 +292,95 @@ extern "C" {
     check->size += (unsigned int)nmemb;
   }
 
-  static INLINE int StateWriteHeader(FILE *fp, const char *name, int version) {
-    IOCheck_struct check = { 0, 0 };
-    fprintf(fp, "%s", name);
-    check.done = 0;
-    check.size = 0;
-    ywrite(&check, (void *)&version, sizeof(version), 1, fp);
-    ywrite(&check, (void *)&version, sizeof(version), 1, fp); // place holder for size
-    return (check.done == check.size) ? ftell(fp) : -1;
+  static INLINE void StateWriteChecked(IOCheck_struct * check, const void * ptr, size_t size, size_t nmemb, StateStream * stream) {
+    check->done += (unsigned int)StateStreamWrite(ptr, size, nmemb, stream);
+    check->size += (unsigned int)nmemb;
   }
 
-  static INLINE int StateFinishHeader(FILE *fp, int offset) {
+  static INLINE void StateReadChecked(IOCheck_struct * check, void * ptr, size_t size, size_t nmemb, StateStream * stream) {
+    check->done += (unsigned int)StateStreamRead(ptr, size, nmemb, stream);
+    check->size += (unsigned int)nmemb;
+  }
+
+  static INLINE int StateStreamWriteHeader(StateStream *fp, const char *name, int version) {
     IOCheck_struct check = { 0, 0 };
-    int size = 0;
-    size = ftell(fp) - offset;
-    fseek(fp, offset - 4, SEEK_SET);
+    StateWriteChecked(&check, name, 1, 4, fp);
     check.done = 0;
     check.size = 0;
-    ywrite(&check, (void *)&size, sizeof(size), 1, fp); // write true size
-    fseek(fp, 0, SEEK_END);
+    StateWriteChecked(&check, (void *)&version, sizeof(version), 1, fp);
+    StateWriteChecked(&check, (void *)&version, sizeof(version), 1, fp); // place holder for size
+    return (check.done == check.size) ? (int)StateStreamTell(fp) : -1;
+  }
+
+  static INLINE int StateStreamFinishHeader(StateStream *fp, int offset) {
+    IOCheck_struct check = { 0, 0 };
+    int size = 0;
+    long end = StateStreamTell(fp);
+    if (offset < 4 || end < offset || end - offset > INT_MAX)
+      return -1;
+    size = (int)(end - offset);
+    if (StateStreamSeek(fp, offset - 4, SEEK_SET) != 0)
+      return -1;
+    check.done = 0;
+    check.size = 0;
+    StateWriteChecked(&check, (void *)&size, sizeof(size), 1, fp); // write true size
+    if (StateStreamSeek(fp, end, SEEK_SET) != 0)
+      return -1;
     return (check.done == check.size) ? (size + 12) : -1;
   }
 
-  static INLINE int StateCheckRetrieveHeader(FILE *fp, const char *name, int *version, int *size) {
+  static INLINE int StateStreamCheckRetrieveHeader(StateStream *fp, const char *name, int *version, int *size) {
     char id[4];
     size_t ret;
 
-    if ((ret = fread((void *)id, 1, 4, fp)) != 4)
+    if ((ret = StateStreamRead((void *)id, 1, 4, fp)) != 4)
       return -1;
 
     if (strncmp(name, id, 4) != 0)
       return -2;
 
-    if ((ret = fread((void *)version, 4, 1, fp)) != 1)
+    if ((ret = StateStreamRead((void *)version, 4, 1, fp)) != 1)
       return -1;
 
+    if (StateStreamRead((void *)size, 4, 1, fp) != 1)
+      return -1;
+
+    return 0;
+  }
+
+  static INLINE int StateWriteHeader(FILE *fp, const char *name, int version) {
+    IOCheck_struct check = { 0, 0 };
+    fprintf(fp, "%s", name);
+    ywrite(&check, (void *)&version, sizeof(version), 1, fp);
+    ywrite(&check, (void *)&version, sizeof(version), 1, fp);
+    return (check.done == check.size) ? (int)ftell(fp) : -1;
+  }
+
+  static INLINE int StateFinishHeader(FILE *fp, int offset) {
+    IOCheck_struct check = { 0, 0 };
+    long end = ftell(fp);
+    int size;
+    if (offset < 4 || end < offset || end - offset > INT_MAX)
+      return -1;
+    size = (int)(end - offset);
+    if (fseek(fp, offset - 4, SEEK_SET) != 0)
+      return -1;
+    ywrite(&check, (void *)&size, sizeof(size), 1, fp);
+    if (fseek(fp, end, SEEK_SET) != 0)
+      return -1;
+    return (check.done == check.size) ? (size + 12) : -1;
+  }
+
+  static INLINE int StateCheckRetrieveHeader(FILE *fp, const char *name, int *version, int *size) {
+    char id[4];
+    if (fread((void *)id, 1, 4, fp) != 4)
+      return -1;
+    if (strncmp(name, id, 4) != 0)
+      return -2;
+    if (fread((void *)version, 4, 1, fp) != 1)
+      return -1;
     if (fread((void *)size, 4, 1, fp) != 1)
       return -1;
-
     return 0;
   }
 

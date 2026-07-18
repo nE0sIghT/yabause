@@ -1423,38 +1423,38 @@ void CartDeInit(void)
 
 //////////////////////////////////////////////////////////////////////////////
 
-int CartSaveState(FILE * fp)
+int CartSaveState(StateStream *fp)
 {
    int offset;
 
-   offset = StateWriteHeader(fp, "CART", 1);
+   offset = StateStreamWriteHeader(fp, "CART", 1);
 
    // Write cart type
-   fwrite((void *)&CartridgeArea->carttype, 4, 1, fp);
+   StateStreamWrite((void *)&CartridgeArea->carttype, 4, 1, fp);
 
    // Write the areas associated with the cart type here
    switch(CartridgeArea->carttype){
       case CART_DRAM8MBIT: {
-         fwrite((void *)CartridgeArea->dram , 1, 0x100000, fp);
+         StateStreamWrite((void *)CartridgeArea->dram, 1, 0x100000, fp);
          break;
       }
       case CART_DRAM32MBIT: {
-         fwrite((void *)CartridgeArea->dram , 1, 0x400000, fp);
+         StateStreamWrite((void *)CartridgeArea->dram, 1, 0x400000, fp);
          break;      
       }
    }
-   return StateFinishHeader(fp, offset);
+   return StateStreamFinishHeader(fp, offset);
 }
 
 //////////////////////////////////////////////////////////////////////////////
 
-int CartLoadState(FILE * fp, UNUSED int version, int size)
+int CartLoadState(StateStream *fp, UNUSED int version, int size)
 {
    int newtype;
    size_t num_read = 0;
 
    // Read cart type
-   num_read = fread((void *)&newtype, 4, 1, fp);
+   num_read = StateStreamRead((void *)&newtype, 4, 1, fp);
 
    // Check to see if old cart type and new cart type match, if they don't,
    // reallocate memory areas
@@ -1467,11 +1467,11 @@ int CartLoadState(FILE * fp, UNUSED int version, int size)
       // Read the areas associated with the cart type here
       switch(CartridgeArea->carttype){
             case CART_DRAM8MBIT: {
-               fread((void *)CartridgeArea->dram , 1, 0x100000, fp);
+               StateStreamRead((void *)CartridgeArea->dram, 1, 0x100000, fp);
                break;
             }
             case CART_DRAM32MBIT: {
-               fread((void *)CartridgeArea->dram , 1, 0x400000, fp);
+               StateStreamRead((void *)CartridgeArea->dram, 1, 0x400000, fp);
                break;      
             }
       }
@@ -1480,4 +1480,3 @@ int CartLoadState(FILE * fp, UNUSED int version, int size)
 }
 
 //////////////////////////////////////////////////////////////////////////////
-

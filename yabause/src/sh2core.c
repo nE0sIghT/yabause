@@ -2681,7 +2681,7 @@ void SCITransmitByte(UNUSED u8 val) {
 
 //////////////////////////////////////////////////////////////////////////////
 
-int SH2SaveState(SH2_struct *context, FILE *fp)
+int SH2SaveState(SH2_struct *context, StateStream *fp)
 {
    int offset;
    IOCheck_struct check = { 0, 0 };
@@ -2689,47 +2689,41 @@ int SH2SaveState(SH2_struct *context, FILE *fp)
 
    // Write header
    if (context->isslave == 0)
-      offset = StateWriteHeader(fp, "MSH2", 5);
+      offset = StateStreamWriteHeader(fp, "MSH2", 6);
    else
    {
-      offset = StateWriteHeader(fp, "SSH2", 5);
-      ywrite(&check, (void *)&yabsys.IsSSH2Running, 1, 1, fp);
+      offset = StateStreamWriteHeader(fp, "SSH2", 6);
+      StateWriteChecked(&check, (void *)&yabsys.IsSSH2Running, 1, 1, fp);
    }
 
    // Write registers
    SH2GetRegisters(context, &regs);
-   ywrite(&check, (void *)&regs, sizeof(sh2regs_struct), 1, fp);
+   StateWriteChecked(&check, (void *)&regs, sizeof(sh2regs_struct), 1, fp);
 
    // Write onchip registers
-   ywrite(&check, (void *)&context->onchip, sizeof(Onchip_struct), 1, fp);
+   StateWriteChecked(&check, (void *)&context->onchip, sizeof(Onchip_struct), 1, fp);
 
-   // Write internal variables
-   // FIXME: write the clock divisor rather than the shift amount for
-   // backward compatibility (fix this next time the save state version
-   // is updated)
-   context->frc.shift = 1 << context->frc.shift;
-   ywrite(&check, (void *)&context->frc, sizeof(context->frc), 1, fp);
-   {
-      u32 div = context->frc.shift;
-      context->frc.shift = 0;
-      while ((div >>= 1) != 0)
-         context->frc.shift++;
-   }
+   // Version 6 stores the internal divider state directly.
+   StateWriteChecked(&check, (void *)&context->frc, sizeof(context->frc), 1, fp);
+   StateWriteChecked(&check, (void *)&context->wdt, sizeof(context->wdt), 1, fp);
    context->NumberOfInterrupts = SH2Core->GetInterrupts(context, context->interrupts);
-   ywrite(&check, (void *)context->interrupts, sizeof(interrupt_struct), MAX_INTERRUPTS, fp);
-   ywrite(&check, (void *)&context->NumberOfInterrupts, sizeof(u32), 1, fp);
-   ywrite(&check, (void *)context->AddressArray, sizeof(u32), 0x100, fp);
-   ywrite(&check, (void *)context->DataArray, sizeof(u8), 0x1000, fp);
-   ywrite(&check, (void *)&context->delay, sizeof(u32), 1, fp);
-   ywrite(&check, (void *)&context->cycles, sizeof(u32), 1, fp);
-   ywrite(&check, (void *)&context->isslave, sizeof(u8), 1, fp);
-   ywrite(&check, (void *)&context->isIdle, sizeof(u8), 1, fp);
-   ywrite(&check, (void *)&context->instruction, sizeof(u16), 1, fp);
+   StateWriteChecked(&check, (void *)context->interrupts, sizeof(interrupt_struct), MAX_INTERRUPTS, fp);
+   StateWriteChecked(&check, (void *)&context->NumberOfInterrupts, sizeof(u32), 1, fp);
+   StateWriteChecked(&check, (void *)context->AddressArray, sizeof(u32), 0x100, fp);
+   StateWriteChecked(&check, (void *)context->DataArray, sizeof(u8), 0x1000, fp);
+   StateWriteChecked(&check, (void *)&context->delay, sizeof(u32), 1, fp);
+   StateWriteChecked(&check, (void *)&context->cycles, sizeof(u32), 1, fp);
+   StateWriteChecked(&check, (void *)&context->isslave, sizeof(u8), 1, fp);
+   StateWriteChecked(&check, (void *)&context->isIdle, sizeof(u8), 1, fp);
+   StateWriteChecked(&check, (void *)&context->isSleeping, sizeof(u8), 1, fp);
+   StateWriteChecked(&check, (void *)&context->instruction, sizeof(u16), 1, fp);
 
-   ywrite(&check, (void *)&context->dma_ch0.copy_clock, sizeof(u32), 1, fp);
-   ywrite(&check, (void *)&context->dma_ch1.copy_clock, sizeof(u32), 1, fp);
+   StateWriteChecked(&check, (void *)&context->dma_ch0.copy_clock, sizeof(context->dma_ch0.copy_clock), 1, fp);
+   StateWriteChecked(&check, (void *)&context->dma_ch0.penerly, sizeof(context->dma_ch0.penerly), 1, fp);
+   StateWriteChecked(&check, (void *)&context->dma_ch1.copy_clock, sizeof(context->dma_ch1.copy_clock), 1, fp);
+   StateWriteChecked(&check, (void *)&context->dma_ch1.penerly, sizeof(context->dma_ch1.penerly), 1, fp);
 
-   return StateFinishHeader(fp, offset);
+   return StateStreamFinishHeader(fp, offset);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -2820,7 +2814,7 @@ void convV4toV5(Onchip_struct * dst,Onchip_struct_v4 * src) {
 };
 
 
-int SH2LoadState(SH2_struct *context, FILE *fp, UNUSED int version, int size)
+int SH2LoadState(SH2_struct *context, StateStream *fp, UNUSED int version, int size)
 {
    IOCheck_struct check = { 0, 0 };
    sh2regs_struct regs;
@@ -2830,48 +2824,53 @@ int SH2LoadState(SH2_struct *context, FILE *fp, UNUSED int version, int size)
    LOG("*********** LOAD STATE *************");
 
    if (context->isslave == 1)
-      yread(&check, (void *)&yabsys.IsSSH2Running, 1, 1, fp);
+      StateReadChecked(&check, (void *)&yabsys.IsSSH2Running, 1, 1, fp);
 
    // Read registers
-   yread(&check, (void *)&regs, sizeof(sh2regs_struct), 1, fp);
+   StateReadChecked(&check, (void *)&regs, sizeof(sh2regs_struct), 1, fp);
    SH2SetRegisters(context, &regs);
 
    // Read onchip registers
    if (version < 2) {
      Onchip_struct_v4 v4;
-     yread(&check, (void *)&v4, sizeof(Onchip_struct_v4)-sizeof(u32)/*CHCR0M*/-sizeof(u32)/*WTCSRM*/ , 1, fp);
+     StateReadChecked(&check, (void *)&v4, sizeof(Onchip_struct_v4)-sizeof(u32)/*CHCR0M*/-sizeof(u32)/*WTCSRM*/ , 1, fp);
      convV4toV5(&context->onchip, &v4);
    }else if (version == 3) {
      Onchip_struct_v4 v4;
-     yread(&check, (void *)&v4, sizeof(Onchip_struct_v4)-sizeof(u32)/*WTCSRM*/, 1, fp);
+     StateReadChecked(&check, (void *)&v4, sizeof(Onchip_struct_v4)-sizeof(u32)/*WTCSRM*/, 1, fp);
      convV4toV5(&context->onchip, &v4);
    }
    else if (version == 4) {
      Onchip_struct_v4 v4;
-     yread(&check, (void *)&v4, sizeof(Onchip_struct_v4), 1, fp);
+     StateReadChecked(&check, (void *)&v4, sizeof(Onchip_struct_v4), 1, fp);
      convV4toV5(&context->onchip, &v4);
    }else {
-     yread(&check, (void *)&context->onchip, sizeof(Onchip_struct), 1, fp);
+     StateReadChecked(&check, (void *)&context->onchip, sizeof(Onchip_struct), 1, fp);
    }
 
    // Read internal variables
-   yread(&check, (void *)&context->frc, sizeof(context->frc), 1, fp);
-   {  // FIXME: backward compatibility hack (see SH2SaveState() comment)
+   StateReadChecked(&check, (void *)&context->frc, sizeof(context->frc), 1, fp);
+   if (version < 6)
+   {  // Older states stored the clock divisor instead of the shift.
       u32 div = context->frc.shift;
       context->frc.shift = 0;
       while ((div >>= 1) != 0)
          context->frc.shift++;
    }
-   yread(&check, (void *)context->interrupts, sizeof(interrupt_struct), MAX_INTERRUPTS, fp);
-   yread(&check, (void *)&context->NumberOfInterrupts, sizeof(u32), 1, fp);
+   else
+      StateReadChecked(&check, (void *)&context->wdt, sizeof(context->wdt), 1, fp);
+   StateReadChecked(&check, (void *)context->interrupts, sizeof(interrupt_struct), MAX_INTERRUPTS, fp);
+   StateReadChecked(&check, (void *)&context->NumberOfInterrupts, sizeof(u32), 1, fp);
    SH2Core->SetInterrupts(context, context->NumberOfInterrupts, context->interrupts);
-   yread(&check, (void *)context->AddressArray, sizeof(u32), 0x100, fp);
-   yread(&check, (void *)context->DataArray, sizeof(u8), 0x1000, fp);
-   yread(&check, (void *)&context->delay, sizeof(u32), 1, fp);
-   yread(&check, (void *)&context->cycles, sizeof(u32), 1, fp);
-   yread(&check, (void *)&context->isslave, sizeof(u8), 1, fp);
-   yread(&check, (void *)&context->isIdle, sizeof(u8), 1, fp);
-   yread(&check, (void *)&context->instruction, sizeof(u16), 1, fp);
+   StateReadChecked(&check, (void *)context->AddressArray, sizeof(u32), 0x100, fp);
+   StateReadChecked(&check, (void *)context->DataArray, sizeof(u8), 0x1000, fp);
+   StateReadChecked(&check, (void *)&context->delay, sizeof(u32), 1, fp);
+   StateReadChecked(&check, (void *)&context->cycles, sizeof(u32), 1, fp);
+   StateReadChecked(&check, (void *)&context->isslave, sizeof(u8), 1, fp);
+   StateReadChecked(&check, (void *)&context->isIdle, sizeof(u8), 1, fp);
+   if (version >= 6)
+      StateReadChecked(&check, (void *)&context->isSleeping, sizeof(u8), 1, fp);
+   StateReadChecked(&check, (void *)&context->instruction, sizeof(u16), 1, fp);
 
    #if 0 //defined(SH2_DYNAREC)
    if(SH2Core->id==2) {
@@ -2884,8 +2883,12 @@ int SH2LoadState(SH2_struct *context, FILE *fp, UNUSED int version, int size)
    #endif
 
    if (version >= 3) {
-     yread(&check, (void *)&context->dma_ch0.copy_clock, sizeof(u32), 1, fp);
-     yread(&check, (void *)&context->dma_ch1.copy_clock, sizeof(u32), 1, fp);
+     StateReadChecked(&check, (void *)&context->dma_ch0.copy_clock, sizeof(context->dma_ch0.copy_clock), 1, fp);
+     if (version >= 6)
+       StateReadChecked(&check, (void *)&context->dma_ch0.penerly, sizeof(context->dma_ch0.penerly), 1, fp);
+     StateReadChecked(&check, (void *)&context->dma_ch1.copy_clock, sizeof(context->dma_ch1.copy_clock), 1, fp);
+     if (version >= 6)
+       StateReadChecked(&check, (void *)&context->dma_ch1.penerly, sizeof(context->dma_ch1.penerly), 1, fp);
    }
    yabsys.frame_count = 0;
    return size;

@@ -434,9 +434,10 @@ extern "C" {
   int YabLoadState(const char *filename);
   int YabSaveStateSlot(const char *dirpath, u8 slot);
   int YabLoadStateSlot(const char *dirpath, u8 slot);
-  int YabSaveStateStream(FILE *stream);
-  int YabLoadStateStream(FILE *stream);
+  int YabSaveStateStream(StateStream *stream, int include_presentation);
+  int YabLoadStateStream(StateStream *stream);
   int YabSaveStateBuffer(void **buffer, size_t *size);
+  int YabSaveStateToBuffer(void *buffer, size_t capacity, size_t *size);
   int YabLoadStateBuffer(const void *buffer, size_t size);
 
   int YabLoadCompressedState(const char *filename);
