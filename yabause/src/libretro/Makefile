@@ -18,6 +18,7 @@ ARCH_IS_WINDOWS = 0
 FORCE_GLEW = 0
 HAVE_SYS_PARAM_H = 1
 HAVE_FSEEKO = 0
+HAVE_VULKAN = 0
 
 ifeq ($(platform),)
 	platform = unix
@@ -474,7 +475,7 @@ INCFLAGS := $(foreach dir,$(INCLUDE_DIRS),-I$(dir))
 WARNINGS :=
 FLAGS += $(INCFLAGS) $(ENDIANNESS_DEFINES) $(WARNINGS)
 
-CXXFLAGS += $(FLAGS) -std=gnu++11
+CXXFLAGS += $(FLAGS) -std=$(CXX_STANDARD)
 CFLAGS += $(FLAGS) -std=gnu11
 
 all: $(TARGET)
@@ -505,6 +506,9 @@ endif
 	$(CC_AS) $(CFLAGS) -c $^ -o $@
 
 %.cpp.o: %.cpp
+	$(CXX) -c -o $@ $< $(CXXFLAGS)
+
+%.cc.o: %.cc
 	$(CXX) -c -o $@ $< $(CXXFLAGS)
 
 %.c.o: %.c

@@ -33,6 +33,11 @@
 #include "vidsoft.h"
 #include "ygl.h"
 
+#ifdef HAVE_VULKAN
+#include "vulkan/VIDVulkanCInterface.h"
+#include "vulkan/vulkan_libretro.h"
+#endif
+
 yabauseinit_struct yinit;
 
 static char slash = path_default_slash_c();
@@ -42,6 +47,7 @@ static char g_system_dir[PATH_MAX];
 static char full_path[PATH_MAX];
 static char bios_path[PATH_MAX];
 static char bup_path[PATH_MAX];
+static char shader_cache_path[PATH_MAX];
 static int system_language = 0;
 
 static int game_width  = 320;
@@ -81,6 +87,9 @@ static int polygon_mode = PERSPECTIVE_CORRECTION;
 static int g_use_sh2_cache = 1;
 static int g_video_filter = AA_NONE;
 static int g_rotate_screen = 0;
+#ifdef HAVE_VULKAN
+static bool g_use_vulkan = true;
+#endif
 static int g_scsp_main_mode = 0;
 static int g_scsp_sync_per_frame = 1;
 static bool rendering_started = false;
@@ -108,6 +117,9 @@ void retro_set_environment(retro_environment_t cb)
 {
    static const struct retro_variable vars[] = {
       { "yabasanshiro_force_hle_bios", "Force HLE BIOS (restart); disabled|enabled" },
+#ifdef HAVE_VULKAN
+      { "yabasanshiro_renderer", "Renderer (restart); vulkan|opengl" },
+#endif
       { "yabasanshiro_frameskip", "Auto-frameskip; enabled|disabled" },
       { "yabasanshiro_addon_cart", "Addon Cartridge (restart); 4M_extended_ram|1M_extended_ram" },
       { "yabasanshiro_system_language", "System Language (restart); english|deutsch|french|spanish|italian|japanese" },
@@ -497,6 +509,9 @@ SoundInterface_struct *SNDCoreList[] = {
 VideoInterface_struct *VIDCoreList[] = {
     //&VIDDummy,
     &VIDOGL,
+#ifdef HAVE_VULKAN
+    &CVIDVulkan,
+#endif
     &VIDSoft,
     NULL
 };
@@ -519,6 +534,11 @@ void YuiErrorMsg(const char *string)
       log_cb(RETRO_LOG_ERROR, "Yabause: %s\n", string);
 }
 
+const char *YuiGetShaderCachePath(void)
+{
+   return shader_cache_path;
+}
+
 static int first_ctx_reset = 1;
 
 static void retro_clear_hw_context(void)
@@ -528,6 +548,10 @@ static void retro_clear_hw_context(void)
 
 int YuiUseOGLOnThisThread()
 {
+#ifdef HAVE_VULKAN
+  if (g_use_vulkan)
+     return 1;
+#endif
 #if !defined(_USEGLEW_)
   return glsm_ctl(GLSM_CTL_STATE_BIND, NULL);
 #else
@@ -537,6 +561,10 @@ int YuiUseOGLOnThisThread()
 
 int YuiRevokeOGLOnThisThread()
 {
+#ifdef HAVE_VULKAN
+  if (g_use_vulkan)
+     return 1;
+#endif
 #if !defined(_USEGLEW_)
   return glsm_ctl(GLSM_CTL_STATE_UNBIND, NULL);
 #else
@@ -546,6 +574,10 @@ int YuiRevokeOGLOnThisThread()
 
 int YuiGetFB(void)
 {
+#ifdef HAVE_VULKAN
+  if (g_use_vulkan)
+     return 0;
+#endif
   return hw_render.get_current_framebuffer();
 }
 
@@ -598,19 +630,24 @@ void YuiSwapBuffers(void)
    if ((prev_game_width != game_width) || (prev_game_height != game_height))
       retro_set_resolution();
    audio_size = soundlen;
+#ifdef HAVE_VULKAN
+   if (g_use_vulkan)
+      vulkan_libretro_set_image();
+#endif
    video_cb(RETRO_HW_FRAME_BUFFER_VALID, current_width, current_height, 0);
    one_frame_rendered = true;
 }
 
 static void retro_ensure_renderer(void)
 {
-   if (renderer_running || !VIDCore)
+   if (renderer_running)
       return;
 
-   if (VIDCore->Init() != 0)
+   if ((VIDCore && VIDCore->Init() != 0) ||
+       (!VIDCore && VideoInit(yinit.vidcoretype) != 0))
    {
       if (log_cb)
-         log_cb(RETRO_LOG_ERROR, "Failed to reinitialize video renderer after GL context reset.\n");
+         log_cb(RETRO_LOG_ERROR, "Failed to reinitialize video renderer after context reset.\n");
       return;
    }
 
@@ -620,6 +657,44 @@ static void retro_ensure_renderer(void)
 
 static void context_reset(void)
 {
+#ifdef HAVE_VULKAN
+   if (g_use_vulkan)
+   {
+      if (first_ctx_reset != 1 && renderer_running && VIDCore)
+      {
+         VideoDeInit();
+         renderer_running = false;
+      }
+      vulkan_libretro_context_destroy();
+      if (!vulkan_libretro_context_reset(environ_cb))
+      {
+         if (log_cb)
+            log_cb(RETRO_LOG_ERROR, "Failed to acquire the libretro Vulkan interface.\n");
+         renderer_running = false;
+         return;
+      }
+
+      if (first_ctx_reset == 1)
+      {
+         if (YabauseInit(&yinit) != 0)
+         {
+            if (log_cb)
+               log_cb(RETRO_LOG_ERROR, "Failed to initialize YabaSanshiro.\n");
+            vulkan_libretro_context_destroy();
+            renderer_running = false;
+            yabause_initialized = false;
+            return;
+         }
+         first_ctx_reset = 0;
+         yabause_initialized = true;
+         renderer_running = true;
+         retro_set_resolution();
+         OSDChangeCore(OSDCORE_DUMMY);
+      }
+      return;
+   }
+#endif
+
 #if !defined(_USEGLEW_)
    glsm_ctl(GLSM_CTL_STATE_CONTEXT_RESET, NULL);
    glsm_context_ready = glsm_ctl(GLSM_CTL_STATE_SETUP, NULL);
@@ -650,13 +725,24 @@ static void context_reset(void)
 
 static void context_destroy(void)
 {
+#ifdef HAVE_VULKAN
+   if (g_use_vulkan)
+   {
+      if (renderer_running && VIDCore)
+         VideoDeInit();
+      renderer_running = false;
+      vulkan_libretro_context_destroy();
+      return;
+   }
+#endif
+
 #if !defined(_USEGLEW_)
    if (glsm_context_ready)
       glsm_ctl(GLSM_CTL_STATE_UNBIND, NULL);
 #endif
 
    if (renderer_running && VIDCore)
-      VIDCore->DeInit();
+      VideoDeInit();
    renderer_running = false;
 
 #if !defined(_USEGLEW_)
@@ -671,6 +757,27 @@ static void context_destroy(void)
 static bool retro_init_hw_context(void)
 {
    retro_clear_hw_context();
+
+#ifdef HAVE_VULKAN
+   if (g_use_vulkan)
+   {
+      const struct retro_hw_render_context_negotiation_interface_vulkan *negotiation =
+            vulkan_libretro_get_negotiation_interface();
+
+      hw_render.context_type = RETRO_HW_CONTEXT_VULKAN;
+      hw_render.context_reset = context_reset;
+      hw_render.context_destroy = context_destroy;
+      hw_render.bottom_left_origin = false;
+      hw_render.cache_context = false;
+
+      if (!environ_cb(RETRO_ENVIRONMENT_SET_HW_RENDER, &hw_render))
+         return false;
+      if (!environ_cb(RETRO_ENVIRONMENT_SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE,
+               (void *)negotiation) && log_cb)
+         log_cb(RETRO_LOG_WARN, "Frontend rejected Vulkan context negotiation; using its default device.\n");
+      return true;
+   }
+#endif
 
 #if defined(_USEGLEW_)
    hw_render.context_reset = context_reset;
@@ -728,6 +835,28 @@ void retro_get_system_info(struct retro_system_info *info)
    info->need_fullpath    = true;
    info->block_extract    = true;
    info->valid_extensions = "cue|iso|mds|ccd|chd";
+}
+
+static void check_renderer_variable(void)
+{
+#ifdef HAVE_VULKAN
+   struct retro_variable var;
+
+   g_use_vulkan = true;
+   var.key = "yabasanshiro_renderer";
+   var.value = NULL;
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      if (strcmp(var.value, "opengl") == 0)
+         g_use_vulkan = false;
+      else if (strcmp(var.value, "vulkan") == 0)
+         g_use_vulkan = true;
+   }
+
+   if (log_cb)
+      log_cb(RETRO_LOG_INFO, "Using %s renderer.\n",
+            g_use_vulkan ? "Vulkan" : "OpenGL");
+#endif
 }
 
 void check_variables(void)
@@ -1079,6 +1208,7 @@ void retro_init(void)
    char save_dir[PATH_MAX];
    snprintf(save_dir, sizeof(save_dir), "%s%cyabasanshiro%c", g_save_dir, slash, slash);
    path_mkdir(save_dir);
+   snprintf(shader_cache_path, sizeof(shader_cache_path), "%s", save_dir);
 
    if (environ_cb(RETRO_ENVIRONMENT_GET_INPUT_BITMASKS, NULL))
       libretro_supports_bitmasks = true;
@@ -1091,12 +1221,18 @@ void retro_init(void)
 bool retro_load_game_common()
 {
    enum retro_pixel_format fmt = RETRO_PIXEL_FORMAT_XRGB8888;
+
+   check_renderer_variable();
    if (!environ_cb(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &fmt))
       return false;
    if (!retro_init_hw_context())
       return false;
 
+#ifdef HAVE_VULKAN
+   yinit.vidcoretype               = g_use_vulkan ? VIDCORE_VULKAN : VIDCORE_OGL;
+#else
    yinit.vidcoretype               = VIDCORE_OGL;
+#endif
    yinit.percoretype               = PERCORE_LIBRETRO;
    yinit.sh2coretype               = g_sh2coretype;
    yinit.sndcoretype               = SNDCORE_LIBRETRO;
@@ -1446,6 +1582,11 @@ void retro_unload_game(void)
       YabauseDeInit();
       yabause_initialized = false;
    }
+
+#ifdef HAVE_VULKAN
+   if (g_use_vulkan)
+      vulkan_libretro_context_destroy();
+#endif
 
    renderer_running = false;
    rendering_started = false;

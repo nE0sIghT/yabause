@@ -4,3 +4,15 @@
 [submodule "yabause/src/android/oboe"]
 	path = yabause/src/android/oboe
 	url = https://github.com/google/oboe
+[submodule "yabause/src/libretro/deps/shaderc"]
+	path = yabause/src/libretro/deps/shaderc
+	url = https://github.com/google/shaderc.git
+[submodule "yabause/src/libretro/deps/glslang"]
+	path = yabause/src/libretro/deps/glslang
+	url = https://github.com/KhronosGroup/glslang.git
+[submodule "yabause/src/libretro/deps/spirv-tools"]
+	path = yabause/src/libretro/deps/spirv-tools
+	url = https://github.com/KhronosGroup/SPIRV-Tools.git
+[submodule "yabause/src/libretro/deps/spirv-headers"]
+	path = yabause/src/libretro/deps/spirv-headers
+	url = https://github.com/KhronosGroup/SPIRV-Headers.git
