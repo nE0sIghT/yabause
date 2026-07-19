@@ -1119,7 +1119,10 @@ bool retro_unserialize(const void *data, size_t size)
    if (error != 0)
       return false;
 
-   retro_set_resolution();
+   /* Do not force a renderer resize here: retro_unserialize is called every
+    * frame during rewind, and an unconditional resize reallocates the Vulkan
+    * render targets each time, stalling the pipeline so rewind cannot advance.
+    * YuiSwapBuffers already re-applies the resolution when it actually changes. */
    return true;
 }
 
